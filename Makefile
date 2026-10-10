@@ -38,8 +38,8 @@ help:
 
 setup:
 	$(PYTHON) -m venv .venv
-	$(if $(wildcard requirements.txt),$(VENV_PY) -m pip install -r requirements.txt,@echo requirements.txt not found yet - lane A adds it at CP0)
-	$(if $(wildcard pyproject.toml),$(VENV_PY) -m pip install -e ".[dev]",@echo pyproject.toml not found yet - lane A adds it at CP0)
+	$(if $(wildcard requirements.txt),$(VENV_PY) -m pip install -r requirements.txt,@echo requirements.txt not present - using pyproject.toml)
+	$(if $(wildcard pyproject.toml),$(VENV_PY) -m pip install -e ".[dev]",@echo pyproject.toml not found - nothing to install)
 	$(if $(wildcard .env),@echo .env already exists - left unchanged,$(if $(wildcard .env.example),$(PYTHON) -c "import shutil; shutil.copyfile('.env.example', '.env')",@echo .env.example not found yet - skipping .env))
 
 # DD-2: exactly one uvicorn worker; it also hosts the background worker loop.
