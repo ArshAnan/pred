@@ -16,7 +16,11 @@ Format of each item: task → LLD reference → **Done when**.
   Agreed contract clarification: all shared Pydantic models are frozen. Model creation validates the LLD §4 rules assigned to `Fact`, `MarketLabel`, and `RunRequest`. Snapshot cleaning, fuel-curve checks, and six-row probability checks remain with their designated components. The shared models and validators import successfully, and the focused contract tests pass.
 - [x] **A0.3** Stub every public function in the LLD §3 table for all modules (correct signatures, `raise NotImplementedError`). Each owner then replaces their own stubs. **Done when** `pytest` collects with 0 errors.
 - [x] **A0.4** Smoke curls from the data source audit for SEC (with `SEC_USER_AGENT`), FRED, Kalshi `/markets`, Polymarket Gamma. Save one real response per source to `tests/fixtures/vendors/`. **Done when** all four return data from your machine.
+
+  Recorded on 2026-10-10. SEC is Delta's submissions (`cik` 0000027904, SIC 4512). FRED is one `DGS10` observation. Kalshi `/markets` and Polymarket Gamma are live payloads; neither is the Fed or WTI shortlist. Confirming those series is A14, not this item.
 - [ ] **CP0 merged** (protocol in TEAM_PLAN §4)
+
+  The three branches are on `main`, and `make test` is green. The code contract (types, stubs, `Settings`, `Adapters`, fixtures, Makefile, `pyproject.toml` dependencies, `tests/conftest.py`) matches CP0_DECISIONS. Still open: B0.3 and C0.3, because this checkout has no `.env`, so the exit test's smoke curls cannot be re-run from here.
 
 ## Block 1 → CP1 Foundations
 

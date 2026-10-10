@@ -16,13 +16,13 @@ Only the owner edits a file between checkpoints. Need a change in someone else's
 | C | Product | `feat/product` | `service.py`, `api.py`, `brief.py`, `alerts.py`, `cli.py`, `ui/client.py`, `app.py`, `Makefile`, `README.md`, tests for these |
 
 Shared files, changed only at a checkpoint or by a tiny "contract PR" to `main` announced in team chat (everyone rebases right after):
-`types.py`, `pyproject.toml` / `requirements.txt`, `config.yaml`, `.env.example`, `CLAUDE.md`.
+`types.py`, `pyproject.toml`, `config.yaml`, `.env.example`, `CLAUDE.md`. Dependencies live only in `pyproject.toml` (CP0_DECISIONS R3).
 
 Why this split: A owns everything that touches the outside world or the database, B owns everything pure or model-shaped, C owns everything a user or judge sees. `worker.py` sits with A because its jobs are data flows (§5); C plugs alert evaluation in through a callback, so neither edits the other's file.
 
-## 2. Gaps in the LLD to settle at CP0 (proposed answers)
+## 2. Gaps in the LLD settled at CP0
 
-Proposed answers: see CP0_DECISIONS.md.
+Accepted answers: see CP0_DECISIONS.md. Clarifications found while checking the merge (optional breakeven WTI, `fuel_curve(ladder, as_of)`, `Settings` and `Adapters`) are Part 3 of that file.
 
 These are things the LLD references but does not define. Agree on them before splitting.
 
@@ -61,7 +61,7 @@ Rough load per block is balanced, but nobody knows the hours yet. If a lane fini
 3. **Merge in order A → B → C** (C depends on both). After each merge, the next person runs `git fetch && git rebase origin/main && make test` again, pushes, then merges. Use squash merges with titles like `CP2: data lane`.
 4. **Conflict rules.**
    - `types.py`: keep the union of fields; never rename or delete a field silently. Renames need all three people.
-   - `requirements.txt` / `pyproject.toml`: keep the union, sort, pin nothing new without telling the team.
+   - `pyproject.toml`: keep the union, sort, pin nothing new without telling the team.
    - `config.yaml`: keep the union of keys; values in the LLD win.
    - Anything else: the file owner resolves.
 5. **On `main`, all three together:** run `make test`, then the checkpoint's exit test. Whoever owns a failing module fixes it directly on a `fix/cp<n>-*` branch and merges before new work starts.

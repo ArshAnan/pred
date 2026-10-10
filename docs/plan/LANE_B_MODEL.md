@@ -10,10 +10,18 @@ Format of each item: task → LLD reference → **Done when**.
 
 ## CP0 — Contract freeze (all three)
 
-- [ ] **B0.1** Review `types.py` with A and C, especially `ScenarioInputs`, `ScenarioRow`, `ScenarioSummary`, `FuelCurve`, `RateStates`.
-- [ ] **B0.2** Write `tests/fixtures/worked_example.json` and `ladder.json` from the §6 worked example (inputs and every expected output: six rows, breakevens 103.16 / 102.77, `p_breach` 0.297, P10/P50/P90 = 80.00 / 94.44 / 118.00, liquidity cover 2.08). Mark them illustrative. C needs these now. **Done when** committed at CP0.
+- [x] **B0.1** Review `types.py` with A and C, especially `ScenarioInputs`, `ScenarioRow`, `ScenarioSummary`, `FuelCurve`, `RateStates`.
+
+  Accepted on the merged tree. Models match LLD §4 plus D1 and D2. Two clarifications are recorded in CP0_DECISIONS D7 and D8: breakeven WTI is optional so a pass-through of 0 survives JSON, and `fuel_curve` takes `as_of` because the engine cannot read the clock.
+- [x] **B0.2** Write `tests/fixtures/worked_example.json` and `ladder.json` from the §6 worked example (inputs and every expected output: six rows, breakevens 103.16 / 102.77, `p_breach` 0.297, P10/P50/P90 = 80.00 / 94.44 / 118.00, liquidity cover 2.08). Mark them illustrative. C needs these now. **Done when** committed at CP0.
+
+  Both files are on `main` and `tests/model/test_fixtures.py` locks them. Operating income is the 2-decimal formula value (1590.43, 1196.42, 553.57). The LLD display table rounds those three cells.
 - [ ] **B0.3** Get LLM keys: Snowflake MLH trial (mlh.link/snowflake) and a Gemini AI Studio key. **Done when** both are in your `.env`.
+
+  Not done. This checkout has no `.env`. `.env.example` lists `SNOWFLAKE_ACCOUNT`, `SNOWFLAKE_PAT` and `GEMINI_API_KEY`.
 - [ ] **CP0 merged**
+
+  Code and fixtures are on `main`. This box stays open until B0.3 and C0.3 are done and someone re-runs the smoke curls.
 
 ## Block 1 → CP1 Foundations
 

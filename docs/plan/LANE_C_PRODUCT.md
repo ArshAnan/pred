@@ -10,10 +10,18 @@ Format of each item: task → LLD reference → **Done when**.
 
 ## CP0 — Contract freeze (all three)
 
-- [ ] **C0.1** Review `types.py` with A and B, especially `RunRequest`, `RunResult`, `Brief`, `Alert`, and the new `HealthStatus`, `MarketView`, `RunSummary`.
-- [ ] **C0.2** `Makefile` with targets `setup`, `api`, `ui`, `test` working now; `ingest`, `backfill`, `warm`, `eval` as placeholders (§9 runbook). **Done when** `make test` runs pytest.
+- [x] **C0.1** Review `types.py` with A and B, especially `RunRequest`, `RunResult`, `Brief`, `Alert`, and the new `HealthStatus`, `MarketView`, `RunSummary`.
+
+  Accepted on the merged tree. `RunRequest` enforces the §4 bounds and rejects an `as_of` more than a minute ahead or without a timezone. `ApiError` carries `code`, `message`, `request_id` and `status`. The D7 breakeven clarification is what `tests/product/test_run_roundtrip.py` locks.
+- [x] **C0.2** `Makefile` with targets `setup`, `api`, `ui`, `test` working now; `ingest`, `backfill`, `warm`, `eval` as placeholders (§9 runbook). **Done when** `make test` runs pytest.
+
+  `tests/product/test_makefile.py` covers the four working targets, the one-worker API command, and the four loud placeholders.
 - [ ] **C0.3** Create a Slack incoming webhook for a demo channel. **Done when** it is in your `.env`.
+
+  Not done. This checkout has no `.env`. `.env.example` lists `SLACK_WEBHOOK_URL`.
 - [ ] **CP0 merged**
+
+  The Makefile and the reviewed types are on `main`. This box stays open until C0.3 and B0.3 are done.
 
 ## Block 1 → CP1 Foundations (build against B's `worked_example.json`, not live data)
 
