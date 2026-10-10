@@ -27,7 +27,7 @@ PYTEST_ARGS ?=
 
 help:
 	@echo Targets:
-	@echo   setup     create .venv, install requirements, copy .env.example to .env
+	@echo   setup     create .venv, install requirements and the package with dev extras, copy .env.example to .env
 	@echo   api       start the API server on $(API_HOST):$(API_PORT), one worker
 	@echo   ui        start Streamlit on $(UI_HOST):$(UI_PORT)
 	@echo   test      run pytest, extra flags via PYTEST_ARGS=...
@@ -39,7 +39,7 @@ help:
 setup:
 	$(PYTHON) -m venv .venv
 	$(if $(wildcard requirements.txt),$(VENV_PY) -m pip install -r requirements.txt,@echo requirements.txt not found yet - lane A adds it at CP0)
-	$(if $(wildcard pyproject.toml),$(VENV_PY) -m pip install -e .,@echo pyproject.toml not found yet - lane A adds it at CP0)
+	$(if $(wildcard pyproject.toml),$(VENV_PY) -m pip install -e ".[dev]",@echo pyproject.toml not found yet - lane A adds it at CP0)
 	$(if $(wildcard .env),@echo .env already exists - left unchanged,$(if $(wildcard .env.example),$(PYTHON) -c "import shutil; shutil.copyfile('.env.example', '.env')",@echo .env.example not found yet - skipping .env))
 
 # DD-2: exactly one uvicorn worker; it also hosts the background worker loop.

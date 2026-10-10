@@ -52,6 +52,15 @@ def test_setup_target_creates_venv():
     assert "-m venv .venv" in dry_run("setup")
 
 
+def test_setup_installs_dev_extra_so_pytest_is_available(tmp_path):
+    # pytest lives in pyproject's [dev] extra; a plain `pip install -e .` skips it.
+    shutil.copy(ROOT / "Makefile", tmp_path / "Makefile")
+    (tmp_path / "pyproject.toml").write_text("")
+    proc = subprocess.run(["make", "-n", "setup"], cwd=tmp_path, capture_output=True, text=True, timeout=30)
+    assert proc.returncode == 0, proc.stderr
+    assert 'pip install -e ".[dev]"' in proc.stdout
+
+
 @pytest.mark.parametrize("target", PLACEHOLDERS)
 def test_placeholders_fail_loudly(target):
     proc = make(target, "WINDOW=2026-07-01..2026-07-12")
