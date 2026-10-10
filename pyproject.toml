@@ -7,6 +7,7 @@ name = "airscen"
 version = "0.1.0"
 description = "Market-Implied Scenario Analyst hackathon MVP"
 requires-python = ">=3.11"
+dependencies = ["pydantic>=2,<3"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

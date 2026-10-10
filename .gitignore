@@ -4,8 +4,8 @@ AGENTS.md
 .env
 .env.*
 !.env.example
-data/
-logs/
+/data/
+/logs/
 
 # Python environments and build artifacts
 __pycache__/
