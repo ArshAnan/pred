@@ -1,0 +1,124 @@
+{
+  "illustrative": true,
+  "note": "LLD section 6 worked example. The ladder, rate quotes, and wti_ref are illustrative. Operating facts are Delta's September-quarter 2026 8-K; variable_debt_share is the June 30, 2026 share, so VARIABLE_SHARE_STALE is set. Operating income is the 2-decimal formula value. The LLD display table rounds it to 1590, 1196, and 554, and the sample API body shows 1590.4.",
+  "as_of": "2026-10-09T14:30:00Z",
+  "company": "DAL",
+  "inputs": {
+    "facts": {
+      "operating_income_usd_m": 1454,
+      "net_interest_expense_usd_m": 146,
+      "fuel_gallons_m": 1146,
+      "debt_total_usd_m": 12851,
+      "variable_debt_share": 0.22,
+      "liquidity_usd_m": 6900,
+      "debt_current_usd_m": 3324
+    },
+    "note_size_usd_m": 1000,
+    "tenor_years": 7,
+    "coupon": 0.055,
+    "coverage_threshold": 6.0,
+    "fuel_passthrough": 1.0,
+    "wti_ref": 85,
+    "rate_quotes": {
+      "hold": 0.82,
+      "hike": 0.17,
+      "cut": 0.01
+    },
+    "ladder": {
+      "thresholds": [
+        {"k": 80, "p": 0.9},
+        {"k": 90, "p": 0.62},
+        {"k": 100, "p": 0.35},
+        {"k": 110, "p": 0.18},
+        {"k": 120, "p": 0.08}
+      ],
+      "tails": [
+        {"k": 70, "p": 1.0},
+        {"k": 130, "p": 0.0}
+      ]
+    }
+  },
+  "expected": {
+    "pi_hike": 0.17,
+    "pi_hold": 0.83,
+    "net_interest_hold": 159.75,
+    "net_interest_hike": 161.52,
+    "wti_p10": 80.0,
+    "wti_p50": 94.44,
+    "wti_p90": 118.0,
+    "s_breakeven_hold": 0.296,
+    "s_breakeven_hike": 0.303,
+    "rows": [
+      {
+        "fuel_label": "P10",
+        "rate_label": "hold",
+        "wti": 80.0,
+        "probability": 0.249,
+        "operating_income_usd_m": 1590.43,
+        "net_interest_usd_m": 159.75,
+        "coverage": 9.96,
+        "breach": false
+      },
+      {
+        "fuel_label": "P50",
+        "rate_label": "hold",
+        "wti": 94.44,
+        "probability": 0.332,
+        "operating_income_usd_m": 1196.42,
+        "net_interest_usd_m": 159.75,
+        "coverage": 7.49,
+        "breach": false
+      },
+      {
+        "fuel_label": "P90",
+        "rate_label": "hold",
+        "wti": 118.0,
+        "probability": 0.249,
+        "operating_income_usd_m": 553.57,
+        "net_interest_usd_m": 159.75,
+        "coverage": 3.47,
+        "breach": true
+      },
+      {
+        "fuel_label": "P10",
+        "rate_label": "hike",
+        "wti": 80.0,
+        "probability": 0.051,
+        "operating_income_usd_m": 1590.43,
+        "net_interest_usd_m": 161.52,
+        "coverage": 9.85,
+        "breach": false
+      },
+      {
+        "fuel_label": "P50",
+        "rate_label": "hike",
+        "wti": 94.44,
+        "probability": 0.068,
+        "operating_income_usd_m": 1196.42,
+        "net_interest_usd_m": 161.52,
+        "coverage": 7.41,
+        "breach": false
+      },
+      {
+        "fuel_label": "P90",
+        "rate_label": "hike",
+        "wti": 118.0,
+        "probability": 0.051,
+        "operating_income_usd_m": 553.57,
+        "net_interest_usd_m": 161.52,
+        "coverage": 3.43,
+        "breach": true
+      }
+    ],
+    "summary": {
+      "p_breach": 0.297,
+      "breakeven_wti_hold": 103.16,
+      "breakeven_wti_hike": 102.77,
+      "coverage_p50": 7.49,
+      "coverage_p90": 3.47,
+      "liquidity_cover": 2.08,
+      "liquidity_ok": true
+    },
+    "flags": ["VARIABLE_SHARE_STALE", "CRUDE_ONLY", "RESOLVE_DATE_PROXY"]
+  }
+}

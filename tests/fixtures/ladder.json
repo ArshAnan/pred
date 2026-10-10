@@ -1,0 +1,23 @@
+{
+  "illustrative": true,
+  "note": "LLD section 6 illustrative WTI close-above ladder for factors.fuel_curve and fuel_states. Not a live market quote.",
+  "resolve_group": "illustrative",
+  "as_of": "2026-10-09T14:30:00Z",
+  "median_spacing": 10,
+  "thresholds": [
+    {"k": 80, "p": 0.9},
+    {"k": 90, "p": 0.62},
+    {"k": 100, "p": 0.35},
+    {"k": 110, "p": 0.18},
+    {"k": 120, "p": 0.08}
+  ],
+  "tails": [
+    {"k": 70, "p": 1.0},
+    {"k": 130, "p": 0.0}
+  ],
+  "expected": {
+    "p10": 80.0,
+    "p50": 94.44,
+    "p90": 118.0
+  }
+}
