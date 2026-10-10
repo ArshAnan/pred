@@ -10,10 +10,10 @@ Format of each item: task → LLD reference → **Done when**.
 
 ## CP0 — Contract freeze (all three)
 
-- [ ] **C0.1** Review `types.py` with A and B, especially `RunRequest`, `RunResult`, `Brief`, `Alert`, and the new `HealthStatus`, `MarketView`, `RunSummary`.
-- [ ] **C0.2** `Makefile` with targets `setup`, `api`, `ui`, `test` working now; `ingest`, `backfill`, `warm`, `eval` as placeholders (§9 runbook). **Done when** `make test` runs pytest.
-- [ ] **C0.3** Create a Slack incoming webhook for a demo channel. **Done when** it is in your `.env`.
-- [ ] **CP0 merged**
+- [x] **C0.1** Review `types.py` with A and B, especially `RunRequest`, `RunResult`, `Brief`, `Alert`, and the new `HealthStatus`, `MarketView`, `RunSummary`.
+- [x] **C0.2** `Makefile` with targets `setup`, `api`, `ui`, `test` working now; `ingest`, `backfill`, `warm`, `eval` as placeholders (§9 runbook). **Done when** `make test` runs pytest.
+- [x] **C0.3** Create a Slack incoming webhook for a demo channel. **Done when** it is in your `.env`.
+- [x] **CP0 merged**
 
 ## Block 1 → CP1 Foundations (build against B's `worked_example.json`, not live data)
 
