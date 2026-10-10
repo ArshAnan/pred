@@ -22,6 +22,8 @@ Why this split: A owns everything that touches the outside world or the database
 
 ## 2. Gaps in the LLD to settle at CP0 (proposed answers)
 
+Proposed answers: see CP0_DECISIONS.md.
+
 These are things the LLD references but does not define. Agree on them before splitting.
 
 - `HealthStatus`, `MarketView`, `RunSummary` are used in §7 but not defined in §4. Define them in `types.py` at CP0 (shapes: §8 "Observability" for `HealthStatus`; `MarketMeta` + `MarketLabel` + latest `Snapshot` + `TrustResult` for `MarketView`; `run_id, company, as_of, created_at, p_breach, llm_status` for `RunSummary`).

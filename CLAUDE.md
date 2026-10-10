@@ -7,6 +7,12 @@ This file is the shared starting point for teammates and for AI coding assistant
 "Verified" means checked against official docs or filings on 2026-10-09. "Illustrative" and "not verified" mean exactly that.
 To have Claude Code load it automatically, rename or copy it to `CLAUDE.md`.
 
+## Team plan
+
+Read docs/plan/TEAM_PLAN.md, docs/plan/CP0_DECISIONS.md and your lane
+file (docs/plan/LANE_<A|B|C>_*.md) before any task. Edit only files your
+lane owns.
+
 ## 1. What we are building
 
 A tool that answers a corporate-finance decision question about a company by turning prediction-market odds into explicit, auditable scenarios.
