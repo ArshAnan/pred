@@ -78,10 +78,14 @@ def _allowed_airscen(rel: str) -> set[str] | None:
     if rel == "src/airscen/service.py":
         return set(_SERVICE)
     if rel == "src/airscen/api.py":
-        return {"airscen.service", "airscen.store", "airscen.types"}
+        # The lifespan calls load_settings(); that function lives in config.
+        return {"airscen.service", "airscen.store", "airscen.types", "airscen.config"}
     if rel == "src/airscen/brief.py":
         return {"airscen.types", "airscen.llm"}
-    if rel == "app.py" or rel.startswith("src/airscen/ui/"):
+    if rel == "app.py":
+        # Streamlit reaches the API only through the typed client (DD-1).
+        return {"airscen.types", "airscen.ui.client"}
+    if rel.startswith("src/airscen/ui/"):
         return {"airscen.types"}
     return None
 
@@ -131,6 +135,9 @@ def test_scenario_cannot_import_store():
     assert check_source("src/airscen/scenario.py", "from airscen import store\n")
 
 
-def test_api_cannot_import_config_and_the_engine_stays_off_third_party_libraries():
-    assert check_source("src/airscen/api.py", "from airscen.config import Settings\n")
+def test_api_and_ui_stay_off_the_engine_and_the_store():
+    assert check_source("src/airscen/api.py", "from airscen.scenario import run_scenarios\n")
+    assert check_source("src/airscen/api.py", "from airscen.adapters.kalshi import Kalshi\n")
+    assert check_source("app.py", "import airscen.store\n")
+    assert check_source("src/airscen/ui/client.py", "from airscen.config import Settings\n")
     assert check_source("src/airscen/trust.py", "import pydantic\n")
