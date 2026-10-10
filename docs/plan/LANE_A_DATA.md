@@ -10,10 +10,12 @@ Format of each item: task → LLD reference → **Done when**.
 
 ## CP0 — Contract freeze (all three, you drive the keyboard)
 
-- [ ] **A0.1** Create the repo layout from CLAUDE.md §13 with `src/airscen/`, `pyproject.toml`, `.gitignore` (`.env`, `data/`, `logs/`, `__pycache__`), `.env.example` (LLD §9 keys), `config.yaml` (LLD §9 defaults). **Done when** `pip install -e .` works.
-- [ ] **A0.2** `types.py`: paste the LLD §4 models verbatim, add the exception hierarchy from §8, and add `HealthStatus`, `MarketView`, `RunSummary` (TEAM_PLAN §2). **Done when** it imports and the team agrees.
-- [ ] **A0.3** Stub every public function in the LLD §3 table for all modules (correct signatures, `raise NotImplementedError`). Each owner then replaces their own stubs. **Done when** `pytest` collects with 0 errors.
-- [ ] **A0.4** Smoke curls from the data source audit for SEC (with `SEC_USER_AGENT`), FRED, Kalshi `/markets`, Polymarket Gamma. Save one real response per source to `tests/fixtures/vendors/`. **Done when** all four return data from your machine.
+- [x] **A0.1** Create the repo layout from CLAUDE.md §13 with `src/airscen/`, `pyproject.toml`, `.gitignore` (`.env`, `data/`, `logs/`, `__pycache__`), `.env.example` (LLD §9 keys), `config.yaml` (LLD §9 defaults). **Done when** `pip install -e .` works.
+- [x] **A0.2** `types.py`: paste the LLD §4 models verbatim, add the exception hierarchy from §8, and add `HealthStatus`, `MarketView`, `RunSummary` (TEAM_PLAN §2). **Done when** it imports and the team agrees.
+
+  Agreed contract clarification: all shared Pydantic models are frozen. Model creation validates the LLD §4 rules assigned to `Fact`, `MarketLabel`, and `RunRequest`. Snapshot cleaning, fuel-curve checks, and six-row probability checks remain with their designated components. The shared models and validators import successfully, and the focused contract tests pass.
+- [x] **A0.3** Stub every public function in the LLD §3 table for all modules (correct signatures, `raise NotImplementedError`). Each owner then replaces their own stubs. **Done when** `pytest` collects with 0 errors.
+- [x] **A0.4** Smoke curls from the data source audit for SEC (with `SEC_USER_AGENT`), FRED, Kalshi `/markets`, Polymarket Gamma. Save one real response per source to `tests/fixtures/vendors/`. **Done when** all four return data from your machine.
 - [ ] **CP0 merged** (protocol in TEAM_PLAN §4)
 
 ## Block 1 → CP1 Foundations

@@ -1,0 +1,18 @@
+AGENTS.md
+
+# Local secrets and generated data
+.env
+.env.*
+!.env.example
+/data/
+/logs/
+
+# Python environments and build artifacts
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+build/
+dist/
+.pytest_cache/
