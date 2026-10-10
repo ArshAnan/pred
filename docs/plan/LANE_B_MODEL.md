@@ -10,19 +10,27 @@ Format of each item: task → LLD reference → **Done when**.
 
 ## CP0 — Contract freeze (all three)
 
-- [ ] **B0.1** Review `types.py` with A and C, especially `ScenarioInputs`, `ScenarioRow`, `ScenarioSummary`, `FuelCurve`, `RateStates`.
-- [ ] **B0.2** Write `tests/fixtures/worked_example.json` and `ladder.json` from the §6 worked example (inputs and every expected output: six rows, breakevens 103.16 / 102.77, `p_breach` 0.297, P10/P50/P90 = 80.00 / 94.44 / 118.00, liquidity cover 2.08). Mark them illustrative. C needs these now. **Done when** committed at CP0.
+- [x] **B0.1** Review `types.py` with A and C, especially `ScenarioInputs`, `ScenarioRow`, `ScenarioSummary`, `FuelCurve`, `RateStates`.
+
+  Accepted on the merged tree. Models match LLD §4 plus D1 and D2. Two clarifications are recorded in CP0_DECISIONS D7 and D8: breakeven WTI is optional so a pass-through of 0 survives JSON, and `fuel_curve` takes `as_of` because the engine cannot read the clock.
+- [x] **B0.2** Write `tests/fixtures/worked_example.json` and `ladder.json` from the §6 worked example (inputs and every expected output: six rows, breakevens 103.16 / 102.77, `p_breach` 0.297, P10/P50/P90 = 80.00 / 94.44 / 118.00, liquidity cover 2.08). Mark them illustrative. C needs these now. **Done when** committed at CP0.
+
+  Both files are on `main` and `tests/model/test_fixtures.py` locks them. Operating income is the 2-decimal formula value (1590.43, 1196.42, 553.57). The LLD display table rounds those three cells.
 - [ ] **B0.3** Get LLM keys: Snowflake MLH trial (mlh.link/snowflake) and a Gemini AI Studio key. **Done when** both are in your `.env`.
+
+  Not done. This checkout has no `.env`. `.env.example` lists `SNOWFLAKE_ACCOUNT`, `SNOWFLAKE_PAT` and `GEMINI_API_KEY`.
 - [ ] **CP0 merged**
+
+  Code and fixtures are on `main`. This box stays open until B0.3 and C0.3 are done and someone re-runs the smoke curls.
 
 ## Block 1 → CP1 Foundations
 
-- [ ] **B1** `trust.clean()` and `trust.trust_score()` per §6 "Quote cleaning and trust": drop crossed or out-of-range quotes, stale after 300 s, four components, weights from config, floor 0.40, backfill cap 0.50. **Done when** tests cover each component, a crossed quote, a stale quote, and the backfill cap.
-- [ ] **B2** `factors.rate_states()`: per-meeting markets in one `group_key`, normalise, fold cut into hold, +25 bp hike, venue choice by trust (Kalshi on tie), `venue_gap`, flags `RATES_NO_MARKET_INPUT` and `VENUE_DISAGREE`. **Done when** illustrative quotes give π_hike 0.17 and π_hold 0.83, and a missing hike market returns nothing plus the flag.
-- [ ] **B3** `factors.fuel_curve()` and `fuel_states()`: group selection (≥3 trusted thresholds, latest resolve ≤ as_of + 100 days), monotone fix, tail points at one median spacing, linear interpolation, inverse for P10/P50/P90 with weights 0.3/0.4/0.3, touch cross-check (`LADDER_INCONSISTENT`), always set `CRUDE_ONLY` and `RESOLVE_DATE_PROXY`. **Done when** `ladder.json` gives 80.00 / 94.44 / 118.00 and <3 thresholds returns nothing plus `FUEL_NO_MARKET_INPUT`.
-- [ ] **B4** `scenario.run_scenarios()`: six rows, `breach = cover < theta` (always true when OI ≤ 0), probabilities null if an input is missing, breakevens, `p_breach = Σ π_r · S(W*_r)`, κ = 0 edge case, liquidity cover. Raise `DataError` (`E_MISSING_FACT`) for missing required facts. **Done when** `test_scenario_golden` matches the worked example to 2 decimals.
-- [ ] **B5** Property tests (hypothesis): coverage never rises with WTI or with note size; six-row probabilities sum to 1 within 1e-9 or are all null. **Done when** green.
-- [ ] **B6** `tests/test_architecture.py`: parse imports and enforce the 7 rules in §3. **Done when** it passes on the current tree and fails if you add `import airscen.store` to `scenario.py`.
+- [x] **B1** `trust.clean()` and `trust.trust_score()` per §6 "Quote cleaning and trust": drop crossed or out-of-range quotes, stale after 300 s, four components, weights from config, floor 0.40, backfill cap 0.50. **Done when** tests cover each component, a crossed quote, a stale quote, and the backfill cap.
+- [x] **B2** `factors.rate_states()`: per-meeting markets in one `group_key`, normalise, fold cut into hold, +25 bp hike, venue choice by trust (Kalshi on tie), `venue_gap`, flags `RATES_NO_MARKET_INPUT` and `VENUE_DISAGREE`. **Done when** illustrative quotes give π_hike 0.17 and π_hold 0.83, and a missing hike market returns nothing plus the flag.
+- [x] **B3** `factors.fuel_curve()` and `fuel_states()`: group selection (≥3 trusted thresholds, latest resolve ≤ as_of + 100 days), monotone fix, tail points at one median spacing, linear interpolation, inverse for P10/P50/P90 with weights 0.3/0.4/0.3, touch cross-check (`LADDER_INCONSISTENT`), always set `CRUDE_ONLY` and `RESOLVE_DATE_PROXY`. **Done when** `ladder.json` gives 80.00 / 94.44 / 118.00 and <3 thresholds returns nothing plus `FUEL_NO_MARKET_INPUT`.
+- [x] **B4** `scenario.run_scenarios()`: six rows, `breach = cover < theta` (always true when OI ≤ 0), probabilities null if an input is missing, breakevens, `p_breach = Σ π_r · S(W*_r)`, κ = 0 edge case, liquidity cover. Raise `DataError` (`E_MISSING_FACT`) for missing required facts. **Done when** `test_scenario_golden` matches the worked example to 2 decimals.
+- [x] **B5** Property tests (hypothesis): coverage never rises with WTI or with note size; six-row probabilities sum to 1 within 1e-9 or are all null. **Done when** green.
+- [x] **B6** `tests/test_architecture.py`: parse imports and enforce the 7 rules in §3. **Done when** it passes on the current tree and fails if you add `import airscen.store` to `scenario.py`.
 - [ ] **CP1 merged** — your part of the exit test: golden test green on `main`.
 
 ## Block 2 → CP2 First real Delta run

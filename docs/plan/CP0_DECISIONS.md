@@ -1,6 +1,6 @@
 # CP0 Decisions: closing the LLD gaps and avoiding merge conflicts
 
-Status: **proposed**. Review together at CP0, edit anything you disagree with, then commit to `docs/plan/` and treat it as frozen like the LLD. Each decision says who it unblocks.
+Status: **accepted** on `main` (2026-10-10). The merged code follows Parts 1 and 2. Part 3 records clarifications found while checking that merge against the LLD. Treat this file as frozen like the LLD. Each decision says who it unblocks.
 
 ---
 
@@ -150,21 +150,21 @@ The CP0 stubs fix every public signature from LLD §3. Changing a signature, add
 Add fields with defaults and new models at the bottom. Never rename, reorder or delete. If two people append at once, the conflict is trivial: keep both.
 
 ### R3. Dependencies decided once, at CP0
-Write the full `requirements.txt` now so nobody adds lines mid-block:
+One list, in `pyproject.toml`. Runtime libraries are `dependencies`; `pytest`, `hypothesis` and `respx` are the `dev` extra. There is no `requirements.txt`. `make setup` installs `-e ".[dev]"`.
 
-```text
-fastapi
-uvicorn[standard]
-pydantic>=2
-pydantic-settings
-httpx
-pyyaml
-python-dotenv
-numpy
-streamlit
-pytest
-hypothesis
-respx            # mock httpx in adapter and client tests
+```toml
+dependencies = [
+    "pydantic>=2,<3",
+    "pydantic-settings",
+    "fastapi",
+    "uvicorn[standard]",
+    "httpx",
+    "pyyaml",
+    "python-dotenv",
+    "numpy",
+    "streamlit",
+]
+dev = ["pytest>=8,<9", "hypothesis", "respx"]
 ```
 
 Need something else later? Contract PR.
@@ -193,15 +193,38 @@ Fakes live in `tests/fakes/<owner file>`, edited only by the owner.
 Commit after each checklist item, and run `git fetch && git rebase origin/main` whenever someone announces a contract PR. Small, frequent rebases turn conflicts into one-line fixes instead of an end-of-block merge fight.
 
 ### R8. Tell your AI assistant the boundaries
-Add to every prompt: "Edit only files my lane owns (see `docs/plan/TEAM_PLAN.md` §1). If a change needs another lane's file, `types.py`, `requirements.txt` or `config.yaml` outside my section, stop and tell me instead." AI assistants happily "fix" neighbouring files, and that is the most likely source of surprise conflicts.
+Add to every prompt: "Edit only files my lane owns (see `docs/plan/TEAM_PLAN.md` §1). If a change needs another lane's file, `types.py`, `pyproject.toml` or `config.yaml` outside my section, stop and tell me instead." AI assistants happily "fix" neighbouring files, and that is the most likely source of surprise conflicts.
 
 ---
 
 ## CP0 agenda (in order)
 
 1. Read this file together; change anything you disagree with.
-2. A: skeleton, `pyproject.toml`, `requirements.txt` (R3), empty `__init__.py` files, test folders (D6).
+2. A: skeleton, `pyproject.toml` (R3), empty `__init__.py` files, test folders (D6).
 3. A: `types.py` = LLD §4 + D1 + D2.
 4. Each owner writes the stubs for their own modules, with the D5 constructor for `WorkerLoop`.
 5. B: `worked_example.json`, `ladder.json`.
 6. Commit everything to `main`; each person creates their branch from it.
+
+---
+
+## Part 3 — Clarifications accepted with the merge
+
+Checked against the LLD on 2026-10-10. These are the places the merged code deliberately differs from a verbatim reading, and why that reading cannot be implemented as written.
+
+### D7. Breakeven WTI is optional
+
+LLD §4 types `breakeven_wti_hold` and `breakeven_wti_hike` as `float`. §6 says that when fuel pass-through is 0, the breakeven is infinite (coverage stays above the threshold) or the breach is certain. JSON has no infinity, and a stored run must load back through `RunResult`. Both fields are `Optional[float]`. A non-finite value is stored as `None`. The engine still reports the outcome through `p_breach` (0 when there is no finite breakeven and coverage holds, 1 when a breach is certain). That behavior is B4; the type change is the contract.
+
+### D8. `fuel_curve` receives `as_of`
+
+LLD §3 writes `fuel_curve(ladder)`. The group rule in §6 needs `as_of` plus `fuel.horizon_days`, and DD-5 forbids reading the clock inside `factors`. The signature is `fuel_curve(ladder, as_of, horizon_days=100) -> tuple[FuelCurve | None, list[str]]`. `rate_states` and `fuel_curve` return `(value, flags)` for the same reason: §3 says they return flags and raise nothing.
+
+### D9. `Settings` and `Adapters` exist at CP0
+
+`load_settings() -> Settings` and the D5 `WorkerLoop` constructor named both types, and neither class existed, so the annotations did not resolve. `Settings` lives in `config.py` and matches `config.yaml` (unknown keys inside a section are ignored; an unknown top-level section is an error). `load_settings()` is still A1. `Adapters` lives in `worker.py`: one attribute per source adapter.
+
+### What is still not CP0
+
+- No `.env` on this machine, so B0.3 (Snowflake and Gemini keys) and C0.3 (Slack webhook) are open. The exit test's smoke curls cannot be re-run until those are filled in locally. `.env` stays untracked.
+- `load_settings()`, the store, the adapters, the engine, the API and the UI are stubs. That is CP1 onward. The public names match LLD §3.
