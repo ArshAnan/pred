@@ -9,7 +9,10 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
-from airscen.types import MarketMeta, MarketView, RunResult, StoreError
+from airscen.types import (
+    Alert, Fact, MacroObs, MarketLabel, MarketMeta, MarketView, RunResult,
+    Snapshot, StoreError,
+)
 
 
 # LLD §4 schema. Keep column names, constraints, and indexes aligned with it.
@@ -72,6 +75,10 @@ CREATE TABLE IF NOT EXISTS llm_cache (
 
 
 def _iso(value):
+    if isinstance(value, datetime):
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("timestamps must include a timezone")
+        return value.astimezone(timezone.utc).isoformat()
     return value.isoformat() if hasattr(value, "isoformat") else value
 
 
@@ -80,6 +87,8 @@ def _json(value):
 
 
 class Repository:
+    stale_after_s = 300  # LLD §9 default; caller may set this from Settings.poll.
+
     def __init__(self, path):
         self.path = Path(path)
 
@@ -109,6 +118,14 @@ class Repository:
             except sqlite3.DatabaseError as exc:
                 raise StoreError(str(exc)) from exc
 
+    def _query(self, sql, parameters=()):
+        try:
+            with self._connect() as db:
+                db.row_factory = sqlite3.Row
+                return [dict(row) for row in db.execute(sql, parameters)]
+        except sqlite3.DatabaseError as exc:
+            raise StoreError(str(exc)) from exc
+
     def migrate(self):
         self.path.parent.mkdir(parents=True, exist_ok=True)
         try:
@@ -135,7 +152,30 @@ class Repository:
         self._write(action)
 
     def latest_facts(self, company, as_of):
-        raise NotImplementedError
+        """Return (selected Facts, flags); FACT_CONFLICT signals >0.5% disagreement."""
+        rows = self._query("""SELECT company, metric, value, unit, basis, period_end,
+                filed_at, source_url, extraction, validated FROM facts
+                WHERE company=? AND validated=1 AND filed_at<=?
+                ORDER BY metric, basis, filed_at DESC,
+                CASE extraction WHEN 'xbrl' THEN 0 WHEN 'override' THEN 1
+                    WHEN 'parser' THEN 2 ELSE 3 END""", (company, _iso(as_of)))
+        groups = {}
+        for row in rows:
+            groups.setdefault((row["metric"], row["basis"]), []).append(row)
+        selected = []
+        flags = set()
+        for group in groups.values():
+            winner = group[0]
+            same_period = [r for r in group if r["period_end"] == winner["period_end"]]
+            conflict = any(
+                abs(a["value"] - b["value"]) > 0.005 * max(abs(a["value"]), abs(b["value"]), 1e-12)
+                for i, a in enumerate(same_period) for b in same_period[i + 1:]
+            )
+            if conflict:
+                flags.add("FACT_CONFLICT")
+                winner = next((r for r in same_period if r["extraction"] == "xbrl"), winner)
+            selected.append(Fact.model_validate(winner))
+        return selected, flags
 
     def put_snapshots(self, rows):
         rows = list(rows)
@@ -155,10 +195,22 @@ class Repository:
         self._write(action)
 
     def latest_snapshot(self, venue, market_id, as_of):
-        raise NotImplementedError
+        """Return (latest visible Snapshot or None, stale)."""
+        venue = getattr(venue, "value", venue)
+        rows = self._query("""SELECT * FROM snapshots WHERE venue=? AND market_id=?
+            AND ts<=? ORDER BY ts DESC LIMIT 1""", (venue, market_id, _iso(as_of)))
+        if not rows:
+            return None, False
+        snapshot = Snapshot.model_validate(rows[0])
+        stale = (as_of.astimezone(timezone.utc) - snapshot.ts).total_seconds() > self.stale_after_s
+        return snapshot, stale
 
     def snapshot_series(self, venue, market_id, start, end, as_of):
-        raise NotImplementedError
+        venue = getattr(venue, "value", venue)
+        rows = self._query("""SELECT * FROM snapshots WHERE venue=? AND market_id=?
+            AND ts>=? AND ts<=? AND ts<=? ORDER BY ts""",
+            (venue, market_id, _iso(start), _iso(end), _iso(as_of)))
+        return [Snapshot.model_validate(row) for row in rows]
 
     def upsert_market(self, m):
         """Accept MarketMeta, or MarketView when a label is available."""
@@ -204,7 +256,24 @@ class Repository:
         self._write(action)
 
     def markets(self, factor=None):
-        raise NotImplementedError
+        factor = getattr(factor, "value", factor)
+        rows = self._query("""SELECT * FROM markets WHERE (? IS NULL OR factor=?)
+            ORDER BY venue, market_id""", (factor, factor))
+        views = []
+        for row in rows:
+            meta = MarketMeta.model_validate({key: row[key] for key in (
+                "venue", "market_id", "token_id", "title", "rules", "close_time",
+                "kind", "outcome", "threshold", "threshold_unit", "group_key")})
+            label = None
+            if row["label_source"] is not None:
+                label = MarketLabel.model_validate({
+                    "relevant": bool(row["relevant"]), "factor": row["factor"],
+                    "yes_moves_factor": row["yes_moves_factor"],
+                    "mechanism": row["mechanism"] or "", "citation": row["citation"],
+                    "label_source": row["label_source"],
+                })
+            views.append(MarketView(meta=meta, label=label))
+        return views
 
     def put_macro(self, rows):
         rows = list(rows)
@@ -216,7 +285,15 @@ class Repository:
         self._write(action)
 
     def macro_series(self, series_id, start, end, as_of):
-        raise NotImplementedError
+        visible_date = datetime.fromisoformat(_iso(as_of)).date().isoformat()
+        rows = self._query("""SELECT series_id, obs_date, value, realtime_start FROM (
+                SELECT *, ROW_NUMBER() OVER (
+                    PARTITION BY obs_date ORDER BY realtime_start DESC) AS rank
+                FROM macro WHERE series_id=? AND obs_date>=? AND obs_date<=?
+                    AND obs_date<=? AND realtime_start<=?
+            ) WHERE rank=1 ORDER BY obs_date""",
+            (series_id, _iso(start), _iso(end), visible_date, visible_date))
+        return [MacroObs.model_validate(row) for row in rows]
 
     def save_run(self, run):
         def action(db):
@@ -230,7 +307,8 @@ class Repository:
         self._write(action)
 
     def get_run(self, run_id):
-        raise NotImplementedError
+        rows = self._query("SELECT result_json FROM runs WHERE run_id=?", (run_id,))
+        return RunResult.model_validate_json(rows[0]["result_json"]) if rows else None
 
     def update_run_brief(self, run_id, md, status):
         def action(db):
@@ -258,10 +336,15 @@ class Repository:
         self._write(action)
 
     def alerts(self, company, since):
-        raise NotImplementedError
+        rows = self._query("""SELECT alert_id, run_id, ts, company, rule, dedup_key,
+            severity, payload_json, status FROM alerts
+            WHERE company=? AND ts>=? ORDER BY ts, alert_id""", (company, _iso(since)))
+        return [Alert.model_validate({**row, "payload": json.loads(row["payload_json"])})
+                for row in rows]
 
     def cache_get(self, key):
-        raise NotImplementedError
+        rows = self._query("SELECT * FROM llm_cache WHERE cache_key=?", (key,))
+        return rows[0] if rows else None
 
     def cache_put(self, entry):
         def action(db):
@@ -278,4 +361,24 @@ class Repository:
         self._write(action)
 
     def data_version(self, as_of):
-        raise NotImplementedError
+        """Fingerprint only input rows visible at as_of; runs/cache/alerts are outputs."""
+        stamp = _iso(as_of)
+        day = datetime.fromisoformat(stamp).date().isoformat()
+        sources = (
+            ("facts", """SELECT company, metric, basis, value, unit, period_end,
+                filed_at, source_url, extraction FROM facts
+                WHERE validated=1 AND filed_at<=?
+                ORDER BY company, metric, basis, period_end, extraction""", (stamp,)),
+            ("markets", """SELECT venue, market_id, token_id, title, rules, close_time,
+                kind, outcome, threshold, threshold_unit, group_key, relevant,
+                factor, yes_moves_factor, mechanism, citation, label_source
+                FROM markets ORDER BY venue, market_id""", ()),
+            ("snapshots", """SELECT * FROM snapshots WHERE ts<=?
+                ORDER BY venue, market_id, ts""", (stamp,)),
+            ("macro", """SELECT * FROM macro WHERE obs_date<=? AND realtime_start<=?
+                ORDER BY series_id, obs_date, realtime_start""", (day, day)),
+        )
+        digest = hashlib.sha256()
+        for name, sql, params in sources:
+            digest.update(_json([name, self._query(sql, params)]).encode())
+        return digest.hexdigest()[:8]
