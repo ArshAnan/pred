@@ -9,6 +9,9 @@ description = "Market-Implied Scenario Analyst hackathon MVP"
 requires-python = ">=3.11"
 dependencies = ["pydantic>=2,<3"]
 
+[project.optional-dependencies]
+dev = ["pytest>=8,<9"]
+
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["airscen*"]
