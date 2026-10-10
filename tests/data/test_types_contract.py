@@ -9,6 +9,7 @@ from airscen.types import (
     MarketMeta,
     Metric,
     RunRequest,
+    ScenarioSummary,
     SourceStatus,
 )
 
@@ -71,6 +72,25 @@ class TypesContractTests(unittest.TestCase):
         for changes in invalid:
             with self.subTest(changes=changes), self.assertRaises(ValidationError):
                 RunRequest(**(base | changes))
+
+    def test_summary_without_breakeven_survives_json_roundtrip(self):
+        # fuel_passthrough = 0 makes the breakeven WTI x / 0 (inf, -inf or nan); it must
+        # become None so the stored run reloads (JSON writes non-finite floats as null).
+        for breakeven in (float("inf"), float("-inf"), float("nan")):
+            with self.subTest(breakeven=breakeven):
+                summary = ScenarioSummary(
+                    p_breach=None, breakeven_wti_hold=breakeven, breakeven_wti_hike=breakeven,
+                    coverage_p50=7.49, coverage_p90=3.47, liquidity_cover=2.08, liquidity_ok=True,
+                )
+                self.assertIsNone(summary.breakeven_wti_hold)
+                self.assertIsNone(summary.breakeven_wti_hike)
+                reloaded = ScenarioSummary.model_validate_json(summary.model_dump_json())
+                self.assertEqual(reloaded, summary)
+        finite = ScenarioSummary(
+            p_breach=0.297, breakeven_wti_hold=103.16, breakeven_wti_hike=102.77,
+            coverage_p50=7.49, coverage_p90=3.47, liquidity_cover=2.08, liquidity_ok=True,
+        )
+        self.assertEqual(ScenarioSummary.model_validate_json(finite.model_dump_json()), finite)
 
 
 if __name__ == "__main__":

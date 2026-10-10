@@ -1,8 +1,9 @@
 # airscen/types.py -- every model is a frozen pydantic v2 BaseModel
+import math
 from enum import Enum
 from datetime import date, datetime, timedelta, timezone
 from typing import Literal, Optional
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class FrozenModel(BaseModel):
@@ -108,9 +109,15 @@ class ScenarioRow(FrozenModel):
 
 class ScenarioSummary(FrozenModel):
     p_breach: Optional[float]
-    breakeven_wti_hold: float; breakeven_wti_hike: float
+    breakeven_wti_hold: Optional[float]; breakeven_wti_hike: Optional[float]   # None: no breakeven (fuel_passthrough = 0)
     coverage_p50: float; coverage_p90: float
     liquidity_cover: Optional[float]; liquidity_ok: Optional[bool]
+
+    @field_validator("breakeven_wti_hold", "breakeven_wti_hike")
+    @classmethod
+    def no_breakeven_is_none(cls, v):
+        # x / 0 from kappa = 0 would serialize to JSON null and then fail to reload
+        return v if v is None or math.isfinite(v) else None
 
 class PeerResult(FrozenModel): ticker: str; period_end: date; summary: ScenarioSummary; flags: list[str]
 
