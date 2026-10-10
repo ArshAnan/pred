@@ -16,11 +16,11 @@ Format of each item: task → LLD reference → **Done when**.
   Agreed contract clarification: all shared Pydantic models are frozen. Model creation validates the LLD §4 rules assigned to `Fact`, `MarketLabel`, and `RunRequest`. Snapshot cleaning, fuel-curve checks, and six-row probability checks remain with their designated components. The shared models and validators import successfully, and the focused contract tests pass.
 - [x] **A0.3** Stub every public function in the LLD §3 table for all modules (correct signatures, `raise NotImplementedError`). Each owner then replaces their own stubs. **Done when** `pytest` collects with 0 errors.
 - [x] **A0.4** Smoke curls from the data source audit for SEC (with `SEC_USER_AGENT`), FRED, Kalshi `/markets`, Polymarket Gamma. Save one real response per source to `tests/fixtures/vendors/`. **Done when** all four return data from your machine.
-- [ ] **CP0 merged** (protocol in TEAM_PLAN §4)
+- [x] **CP0 merged** (protocol in TEAM_PLAN §4)
 
 ## Block 1 → CP1 Foundations
 
-- [ ] **A1** `config.py`: `load_settings()` reads `.env` + `config.yaml` into a validated `Settings`; startup checks from §2 rule 2. **Done when** a missing `SEC_USER_AGENT` raises `ConfigError` naming it.
+- [x] **A1** `config.py`: `load_settings()` reads `.env` + `config.yaml` into a validated `Settings`; startup checks from §2 rule 2. **Done when** a missing `SEC_USER_AGENT` raises `ConfigError` naming it.
 - [ ] **A2** `store.py` schema: `migrate()` runs the §4 SQL exactly (WAL, `busy_timeout`, foreign keys, 7 tables). All write methods (`upsert_facts`, `put_snapshots`, `upsert_market`, `put_macro`, `save_run`, `update_run_brief`, `save_alert`, `cache_put`) use one short transaction each. **Done when** migrate on a temp file creates all 7 tables and a round-trip test passes per table.
 - [ ] **A3** `store.py` `as_of` reads with the §4 visibility and tie-break table: `latest_facts` (newest `filed_at`, source priority xbrl > override > parser > llm, only `validated=1`, `FACT_CONFLICT` signal on >0.5% disagreement), `latest_snapshot` (+ stale flag), `snapshot_series`, `macro_series` (newest vintage), `markets` (hand label beats llm), `cache_get`, `data_version`. **Done when** the §9 store test passes: with `as_of=2026-10-08` the Oct 9 8-K facts are invisible and the June-quarter facts show.
 - [ ] **A4** `adapters/http.py`: `SourceClient` with timeouts (3 s / 10 s / 20 s EDGAR / 30 s total), retry policy, `Retry-After`, per-host token bucket, 429 halves the rate for 60 s, circuit breaker (5 failures → 60 s open → one probe) — §8. **Done when** tests against a fake server cover retry, no-retry on 4xx, and breaker open/close.
