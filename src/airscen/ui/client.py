@@ -68,7 +68,7 @@ class ApiClient:
 
     def post(self, path: str, body: Any, key: str | None = None) -> Any:
         """POST once; never retried automatically. `key` is the Idempotency-Key header."""
-        read = READ_RUNS_POST_S if path.rstrip("/") == "/runs" else READ_S
+        read = READ_RUNS_POST_S if path.rstrip("/") in {"/runs", "/runs/path"} else READ_S
         headers = {"Idempotency-Key": key} if key else {}
         try:
             resp = self._http.post(path, json=body, headers=headers, timeout=httpx.Timeout(read, connect=CONNECT_S))

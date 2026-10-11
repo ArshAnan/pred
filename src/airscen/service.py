@@ -19,8 +19,9 @@ from typing import Any, Optional
 from airscen import factors, scenario, trust
 from airscen.brief import brief_problems, llm_brief, template_brief
 from airscen.types import (
-    AirScenError, Basis, Brief, DataError, Fact, Factor, MarketMeta, MarketView, Metric, PeerResult, RequestError, RunRequest,
-    RunResult, RunSummary, ScenarioInputs, Snapshot, SourceError, StoreError, TrustResult, Venue,
+    AirScenError, AnswerPath, AnswerPathPoint, AnswerPathRequest, Basis, Brief, DataError, Fact, Factor, MarketMeta,
+    MarketView, Metric, PeerResult, RequestError, RunRequest, RunResult, RunSummary, ScenarioInputs, Snapshot,
+    SourceError, StoreError, TrustResult, Venue, path_times,
 )
 
 log = logging.getLogger("airscen.service")
@@ -52,46 +53,25 @@ class RunService:
         self.clock = clock or (lambda: datetime.now(timezone.utc))
 
     def create_run(self, req: RunRequest) -> RunResult:
-        self._check_ticker(req.ticker)
-        now = self.clock()
-        as_of = req.as_of or now  # one as_of for every read below (DD-4)
-
-        focal = self._company_inputs(req.ticker, as_of)
-        dgs10 = self._latest_dgs10(as_of)
-        missing = focal.missing_facts + ([DGS10] if dgs10 is None else []) + ([WTI] if focal.wti_ref is None else [])
-        if missing:
-            raise DataError(
-                f"Required inputs are missing for {req.ticker}: {', '.join(missing)}",
-                code="E_MISSING_FACT", details={"missing": missing},
-            )
-
-        market_flags: list[str] = []
-        rate_quotes, fuel_quotes = self._factor_quotes(as_of, market_flags)
-        rates, rate_flags = factors.rate_states(rate_quotes)
-        curve, fuel_flags = factors.fuel_curve(fuel_quotes, as_of, self.settings.fuel.horizon_days)
-        flags = focal.flags + market_flags + rate_flags + fuel_flags + list(ALWAYS_FLAGS)
+        prepared = self._prepare(req)
 
         def scenarios(company: _CompanyInputs):
             # Peers share the request, fuel curve and rate states; facts and W_bar are their own (LLD section 6).
-            return scenario.run_scenarios(ScenarioInputs(
-                company=company.ticker, as_of=as_of, note_size_usd_m=req.note_size_usd_m,
-                tenor_years=req.tenor_years, coupon=(dgs10 + req.coupon_spread_bp / 100) / 100,
-                coverage_threshold=req.coverage_threshold, fuel_passthrough=req.fuel_passthrough,
-                baseline=company.baseline, wti_ref=company.wti_ref, rates=rates, fuel=curve,
-            ))
+            return scenario.run_scenarios(self._inputs(req, prepared, company))
 
-        rows, summary = scenarios(focal)
+        rows, summary = scenarios(prepared.focal)
         if req.include_peers:
-            peers, peer_books = self._peers(req, focal, as_of, scenarios)
+            peers, peer_books = self._peers(req, prepared.focal, prepared.as_of, scenarios)
         else:
             peers, peer_books = [], []
-        peers, focal_margin, margin_flags = self._with_margins(focal, peers, peer_books)
-        flags = list(dict.fromkeys([*flags, *margin_flags]))
+        peers, focal_margin, margin_flags = self._with_margins(prepared.focal, peers, peer_books)
+        flags = list(dict.fromkeys([*prepared.flags, *margin_flags]))
 
         result = RunResult(
-            run_id=f"run_{uuid.uuid4().hex[:12]}", company=req.ticker, as_of=as_of, created_at=now,
-            inputs=req.model_copy(update={"as_of": as_of}), rows=rows, summary=summary, peers=peers,
-            flags=flags, data_version=self.repo.data_version(as_of),
+            run_id=f"run_{uuid.uuid4().hex[:12]}", company=req.ticker, as_of=prepared.as_of,
+            created_at=prepared.now, inputs=req.model_copy(update={"as_of": prepared.as_of}),
+            rows=rows, summary=summary, peers=peers, flags=flags,
+            data_version=self.repo.data_version(prepared.as_of),
             brief=Brief(template_md="", llm_md=None, llm_status="pending" if self.llm else "skipped"),
             operating_margin=focal_margin,
         )
@@ -99,6 +79,72 @@ class RunService:
             update={"template_md": template_brief(result)})})
         self.repo.save_run(result)
         return result
+
+    def answer_path(self, req: AnswerPathRequest) -> AnswerPath:
+        """Recompute one question at each as_of in the window. Nothing is saved.
+
+        A point with a missing fact or Treasury yield is a gap. A quote older than the
+        live freshness window is still used, and the point is marked not fresh, because
+        a daily sample would otherwise be empty whenever the recorder was quiet for five
+        minutes. POST /runs keeps dropping those quotes.
+        """
+        self._check_ticker(req.ticker)
+        times = path_times(req.start, req.end, req.step_hours)
+        if len(times) > 48:
+            raise RequestError(
+                "At most 48 points; widen step_hours or shorten the window",
+                code="E_VALIDATION", details={"points": len(times)},
+            )
+        line = float(self.settings.alerts.breach_threshold)
+        points: list[AnswerPathPoint] = []
+        prev_oi: float | None = None
+        prev_ni: float | None = None
+        for as_of in times:
+            run_req = RunRequest(
+                ticker=req.ticker, as_of=as_of, note_size_usd_m=req.note_size_usd_m,
+                tenor_years=req.tenor_years, coupon_spread_bp=req.coupon_spread_bp,
+                coverage_threshold=req.coverage_threshold, fuel_passthrough=req.fuel_passthrough,
+                include_peers=False,
+            )
+            try:
+                prepared = self._prepare(run_req, allow_stale=True)
+            except DataError as exc:
+                points.append(AnswerPathPoint(as_of=as_of, status="gap", gap_reason=exc.message))
+                prev_oi = prev_ni = None
+                continue
+            rows, summary = scenario.run_scenarios(self._inputs(run_req, prepared, prepared.focal))
+            hold = next(row for row in rows if row.rate_label == "hold" and row.fuel_label == "P50")
+            fuel_change = funding_change = None
+            if prev_oi is not None and prev_ni not in (None, 0) and hold.net_interest_usd_m != 0:
+                fuel_change = (hold.operating_income_usd_m - prev_oi) / hold.net_interest_usd_m
+                funding_change = prev_oi / hold.net_interest_usd_m - prev_oi / prev_ni
+            p = summary.p_breach
+            flags = list(dict.fromkeys(prepared.flags))
+            points.append(AnswerPathPoint(
+                as_of=as_of, status="ok", p_breach=p,
+                breakeven_wti_hold=summary.breakeven_wti_hold, coverage_p50=summary.coverage_p50,
+                operating_income_p50_usd_m=hold.operating_income_usd_m,
+                net_interest_p50_usd_m=hold.net_interest_usd_m,
+                coverage_change_from_fuel=fuel_change, coverage_change_from_funding=funding_change,
+                call=None if p is None else ("on_or_above_line" if p >= line else "below_line"),
+                fresh=not any(flag in flags for flag in ("STALE_MARKETS", "FUEL_NO_MARKET_INPUT", "RATES_NO_MARKET_INPUT")),
+                flags=flags,
+            ))
+            prev_oi, prev_ni = hold.operating_income_usd_m, hold.net_interest_usd_m
+        crossings: list[datetime] = []
+        previous = None
+        for point in points:
+            if point.call is None:
+                continue
+            if previous is not None and point.call != previous:
+                crossings.append(point.as_of)
+            previous = point.call
+        n_ok = sum(point.status == "ok" for point in points)
+        return AnswerPath(
+            ticker=req.ticker, line=line, points=points, crossings=crossings,
+            n_ok=n_ok, n_gap=len(points) - n_ok,
+            reading=_path_reading(points, crossings, line, n_ok, len(points) - n_ok),
+        )
 
     def get_run(self, run_id: str) -> RunResult:
         run = self.repo.get_run(run_id)
@@ -179,6 +225,34 @@ class RunService:
     def _check_ticker(self, ticker: str) -> None:
         if ticker not in {c.ticker for c in self.settings.companies}:
             raise RequestError(f"Unknown ticker {ticker}", code="E_NOT_FOUND", details={"ticker": ticker})
+
+    def _prepare(self, req: RunRequest, *, allow_stale: bool = False) -> "_Prepared":
+        """Facts, coupon yield, fuel curve and rate states at one as_of."""
+        self._check_ticker(req.ticker)
+        now = self.clock()
+        as_of = req.as_of or now  # one as_of for every read below (DD-4)
+        focal = self._company_inputs(req.ticker, as_of)
+        dgs10 = self._latest_dgs10(as_of)
+        missing = focal.missing_facts + ([DGS10] if dgs10 is None else []) + ([WTI] if focal.wti_ref is None else [])
+        if missing:
+            raise DataError(
+                f"Required inputs are missing for {req.ticker}: {', '.join(missing)}",
+                code="E_MISSING_FACT", details={"missing": missing},
+            )
+        market_flags: list[str] = []
+        rate_quotes, fuel_quotes = self._factor_quotes(as_of, market_flags, allow_stale=allow_stale)
+        rates, rate_flags = factors.rate_states(rate_quotes)
+        curve, fuel_flags = factors.fuel_curve(fuel_quotes, as_of, self.settings.fuel.horizon_days)
+        flags = focal.flags + market_flags + rate_flags + fuel_flags + list(ALWAYS_FLAGS)
+        return _Prepared(now=now, as_of=as_of, focal=focal, dgs10=float(dgs10), rates=rates, curve=curve, flags=flags)
+
+    def _inputs(self, req: RunRequest, prepared: "_Prepared", company: "_CompanyInputs") -> ScenarioInputs:
+        return ScenarioInputs(
+            company=company.ticker, as_of=prepared.as_of, note_size_usd_m=req.note_size_usd_m,
+            tenor_years=req.tenor_years, coupon=(prepared.dgs10 + req.coupon_spread_bp / 100) / 100,
+            coverage_threshold=req.coverage_threshold, fuel_passthrough=req.fuel_passthrough,
+            baseline=company.baseline, wti_ref=company.wti_ref, rates=prepared.rates, fuel=prepared.curve,
+        )
 
     # ---- inputs ----
 
@@ -263,7 +337,7 @@ class RunService:
         score = trust.trust_score(meta, snap, as_of, cfg)
         return snap, stale or score.excluded_reason == "stale", score
 
-    def _factor_quotes(self, as_of: datetime, flags: list[str]):
+    def _factor_quotes(self, as_of: datetime, flags: list[str], *, allow_stale: bool = False):
         rates, fuel = [], []
         for meta, label in self.repo.markets():
             if label is None or not label.relevant or label.factor not in (Factor.RATES, Factor.FUEL):
@@ -273,16 +347,58 @@ class RunService:
             snap, stale, score = self._score(meta, as_of)
             if score is None:
                 continue
-            if stale:
+            if stale or score.excluded_reason == "stale":
                 flags.append("STALE_MARKETS")
-                continue
-            if score.excluded_reason is not None:
+                if not allow_stale or score.score < self.settings.trust.floor:
+                    continue
+                # The path keeps a quote the live run would drop, once it clears the trust floor.
+                score = score.model_copy(update={"excluded_reason": None})
+            elif score.excluded_reason is not None:
                 continue
             if snap.src != "live":
                 flags.append("BACKFILL_INPUTS")
             quote = factors.FactorQuote(meta=meta, label=label, snapshot=snap, trust=score)
             (rates if label.factor == Factor.RATES else fuel).append(quote)
         return rates, fuel
+
+
+@dataclass(frozen=True)
+class _Prepared:
+    now: datetime
+    as_of: datetime
+    focal: "_CompanyInputs"
+    dgs10: float
+    rates: Any
+    curve: Any
+    flags: list[str]
+
+
+def _path_reading(points: list[AnswerPathPoint], crossings: list[datetime], line: float, n_ok: int, n_gap: int) -> str:
+    sentences = [f"{len(points)} points, {n_ok} computed and {n_gap} missing an input visible at that time."]
+    if crossings:
+        when = ", ".join(ts.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M UTC") for ts in crossings)
+        sentences.append(f"The breach probability crosses the {line * 100:.0f}% alert line at {when}.")
+    elif n_ok >= 2 and any(point.call is not None for point in points):
+        sentences.append(f"The computed points stay on the same side of the {line * 100:.0f}% alert line.")
+    elif n_ok == 0:
+        sentences.append("No point had the facts and Treasury yield needed to price the note.")
+    stale = sum(1 for point in points if point.status == "ok" and not point.fresh)
+    if stale:
+        noun = "point" if stale == 1 else "points"
+        sentences.append(
+            f"{stale} computed {noun} used a quote older than the live freshness window and "
+            f"{'is' if stale == 1 else 'are'} marked not fresh. "
+            "A Run at that time would have dropped the stale quote."
+        )
+    last = next((point for point in reversed(points) if point.coverage_change_from_fuel is not None), None)
+    if last is not None and last.coverage_change_from_funding is not None:
+        sentences.append(
+            f"From the previous computed point to {last.as_of.astimezone(timezone.utc):%Y-%m-%d %H:%M} UTC, "
+            f"P50 hold coverage changed {last.coverage_change_from_fuel:+.2f}x from operating income "
+            f"and {last.coverage_change_from_funding:+.2f}x from net interest "
+            "(the note, the coupon, and any hike)."
+        )
+    return " ".join(sentences)
 
 
 @dataclass(frozen=True)
