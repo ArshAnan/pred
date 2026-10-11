@@ -539,8 +539,12 @@ missing:
   - company: UAL
     metric: variable_debt_share
     period_end: 2026-06-30
-    reason: The July 15, 2026 release does not state a fixed or variable share of debt.
-    source_url: https://www.sec.gov/Archives/edgar/data/100517/000010051726000135/ual_erx06302026xex991.htm
+    reason: >
+      Neither the July 15, 2026 earnings release nor the June 30, 2026 10-Q states a fixed or
+      variable share of debt. The 10-Q says the company had $11.2 billion principal amount of
+      floating rate debt subject to increased-cost provisions; that is not a share of total debt,
+      so no share is derived from it.
+    source_url: https://www.sec.gov/Archives/edgar/data/100517/000010051726000139/ual-20260630.htm
   - company: AAL
     metric: revenue_adjusted
     period_end: 2026-06-30
@@ -560,5 +564,8 @@ missing:
   - company: AAL
     metric: variable_debt_share
     period_end: 2026-06-30
-    reason: The July 23, 2026 release does not state a fixed or variable share of debt.
-    source_url: https://www.sec.gov/Archives/edgar/data/6201/000000620126000051/a8kerexhibit991q2-26.htm
+    reason: >
+      Neither the July 23, 2026 earnings release nor the June 30, 2026 10-Q states a fixed or
+      variable share of debt. The 10-Q lists individual variable-rate facilities and one mixed
+      fixed-and-variable line. Those principals are not summed into a share.
+    source_url: https://www.sec.gov/Archives/edgar/data/6201/000000620126000052/aal-20260630.htm

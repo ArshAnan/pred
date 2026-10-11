@@ -123,6 +123,22 @@ The user message is JSON with a scenario run ("run") and the company facts it us
 Rules:
 - Markdown, at most 400 words.
 - Use only numbers that appear in the JSON. Do not compute, estimate or invent any other number.
+- Copy each number as it is written in the JSON. Do not round it, and do not convert millions into billions or any other unit.
+- Name each figure for the field it came from. Liquidity cover is cover of debt due within a year, not cover of the new note.
+- After a number taken from a fact, cite its id in brackets, for example [F3].
+- Answer the question first: can the company service the new note, and how likely is coverage to fall below the threshold.
+- State every flag and these assumptions: crude only (no jet crack spread), the WTI resolve date stands in for the quarter,
+  fuel and rate states are treated as independent.
+- Say plainly that this is a conditional answer given market-implied odds, not a forecast and not investment advice."""
+
+
+REPAIR_SYSTEM = """You rewrite a credit brief that failed a number check.
+The user message is JSON: the rejected draft, the problems, the scenario run, the facts, and allowed_numbers.
+Rules:
+- Markdown, at most 400 words.
+- Use only numbers that appear in the JSON. Do not compute, estimate or invent any other number.
+- Every numeral you write must be copied from allowed_numbers. Do not round, and do not convert millions into billions.
+- Do not reuse any number listed under problems.
 - After a number taken from a fact, cite its id in brackets, for example [F3].
 - Answer the question first: can the company service the new note, and how likely is coverage to fall below the threshold.
 - State every flag and these assumptions: crude only (no jet crack spread), the WTI resolve date stands in for the quarter,
@@ -134,6 +150,19 @@ def llm_brief(result: RunResult, llm: Any, facts: Sequence[Any] = ()) -> str:
     """Ask the LLM for a brief (task write_brief). LLMError propagates; the caller decides the status."""
     user = json.dumps(_brief_input(result, facts), sort_keys=True, default=str)
     md = llm.complete_text("write_brief", BRIEF_SYSTEM, user, cache_key=_cache_key(user))
+    return md.strip()
+
+
+def repair_brief(draft: str, problems: Sequence[str], result: RunResult, llm: Any, facts: Sequence[Any] = ()) -> str:
+    """One rewrite after the number check rejects a draft. A second failure stays rejected."""
+    payload = {
+        "problems": list(problems),
+        "rejected_draft": draft,
+        "allowed_numbers": _allowed_spellings(result, facts),
+        **_brief_input(result, facts),
+    }
+    user = json.dumps(payload, sort_keys=True, default=str)
+    md = llm.complete_text("write_brief_repair", REPAIR_SYSTEM, user, cache_key=_repair_key(user))
     return md.strip()
 
 
@@ -168,6 +197,31 @@ def _ordered(facts: Sequence[Any]) -> list[Any]:
 
 def _cache_key(user: str) -> str:
     return hashlib.sha256(f"write_brief|{user}".encode()).hexdigest()
+
+
+def _repair_key(user: str) -> str:
+    return hashlib.sha256(f"write_brief_repair|{user}".encode()).hexdigest()
+
+
+def _allowed_spellings(result: RunResult, facts: Sequence[Any]) -> list[str]:
+    """Spellings the number check accepts, so a rewrite can copy them instead of rounding."""
+    values, dates = _input_values(result)
+    for fact in facts:
+        values.append(float(fact.value))
+        dates.add(fact.period_end.isoformat())
+        values.append(float(fact.period_end.year))
+    spellings: set[str] = set(dates)
+    for value in values:
+        spellings.add(_spelling(value))
+        if abs(value) <= 1:
+            spellings.add(_spelling(value * 100))
+    return sorted(spellings)
+
+
+def _spelling(value: float) -> str:
+    if math.isfinite(value) and abs(value - round(value)) < 1e-9:
+        return str(int(round(value)))
+    return f"{value:.10f}".rstrip("0").rstrip(".")
 
 
 # ---- number check ----

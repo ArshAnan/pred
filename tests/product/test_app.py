@@ -195,7 +195,7 @@ def test_peers_page_marks_configured_peers_without_a_result(api):
     table = at.dataframe[0].value
     assert list(table["Company"]) == ["DAL", "UAL", "AAL"]
     assert list(table["Period end"])[0] == "-"  # no facts visible: shown as unknown, not guessed
-    assert "no result" in list(table["Flags"])[1]
+    assert "Not scored" in list(table["Flags"])[1]
 
 
 def test_peers_page_without_a_run_asks_for_one(api):
@@ -335,10 +335,11 @@ def test_error_banner_shows_code_message_and_missing_facts(api):
         "E_MISSING_FACT", "Required facts are missing for DAL: variable_debt_share",
         {"missing": ["variable_debt_share"]}, request_id="req-422"))
     at = click_run(start())
-    banner = "\n".join(e.value for e in at.error)
-    assert "E_MISSING_FACT" in banner and "variable_debt_share" in banner
+    banner = "\n".join(w.value for w in at.warning)
+    assert "not scored" in banner and "variable-rate share" in banner
     assert "req-422" in page_text(at)
     assert not at.metric  # no result shown
+    assert not at.error
 
 
 def test_retry_after_a_failure_reuses_the_idempotency_key(api):

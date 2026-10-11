@@ -3,8 +3,9 @@
 The quotes are the last 60-minute bar at or before 2026-07-10T20:00:00Z.
 They are stored with a backfill source, so trust is capped and the run
 carries BACKFILL_INPUTS. Coverage uses the June-quarter facts in
-overrides.yaml. The July 10 DGS10 vintage is not in the fixtures, so the
-new note's coupon is not applied and the grid is the existing book.
+overrides.yaml. The new note uses the FRED DGS10 print that was visible
+on July 10 (the July 9 yield, 4.54, vintage realtime_start 2026-07-10)
+plus the 150 bp demo spread. There is no July 10 observation.
 """
 
 from __future__ import annotations
@@ -45,6 +46,8 @@ REALIZED_GAL = 3.61
 REALIZED_COVERAGE = 10.0
 _JUNE_END = date(2026, 6, 30)
 _COVERAGE_THRESHOLD = 6.0  # worked-example placeholder; no covenant has been verified
+_NOTE_SIZE_USD_M = 1000.0
+_COUPON_SPREAD_BP = 150.0
 
 
 def default_fixture() -> Path:
@@ -131,7 +134,26 @@ def _june_baseline() -> dict:
     return baseline
 
 
-def _coverage_lines(as_of: datetime, rates, curve, wti_ref: float) -> list[str]:
+def _note_coupon(doc: dict) -> tuple[float, str]:
+    """Coupon for the demo note from the July 10 DGS10 vintage in the fixture.
+
+    Same formula as a live run: (DGS10 percent + spread in percent) / 100.
+    """
+    row = doc.get("dgs10")
+    if not row or row.get("value") is None:
+        raise DataError("July 10 DGS10 vintage is missing from the replay fixture")
+    dgs10 = float(row["value"])
+    coupon = (dgs10 + _COUPON_SPREAD_BP / 100) / 100
+    line = (
+        f"The new note is {_NOTE_SIZE_USD_M:.0f} USD millions. "
+        f"The July 10 DGS10 vintage is the {row['obs_date']} print of {dgs10:.2f}% "
+        f"(realtime_start {row['realtime_start']}), plus the {_COUPON_SPREAD_BP:.0f} bp demo spread, "
+        f"so the coupon is {coupon * 100:.2f}%."
+    )
+    return coupon, line
+
+
+def _coverage_lines(as_of: datetime, rates, curve, wti_ref: float, doc: dict) -> list[str]:
     baseline = _june_baseline()
     required = (
         Metric.OPERATING_INCOME,
@@ -145,12 +167,13 @@ def _coverage_lines(as_of: datetime, rates, curve, wti_ref: float) -> list[str]:
         why = ", ".join(missing) if missing else "fuel curve or rate states missing"
         return [f"coverage grid not computed: {why}"]
     try:
+        coupon, coupon_line = _note_coupon(doc)
         rows, summary = run_scenarios(ScenarioInputs(
             company="DAL",
             as_of=as_of,
-            note_size_usd_m=0.0,
+            note_size_usd_m=_NOTE_SIZE_USD_M,
             tenor_years=7,
-            coupon=0.0,
+            coupon=coupon,
             coverage_threshold=_COVERAGE_THRESHOLD,
             fuel_passthrough=1.0,
             baseline=baseline,
@@ -166,7 +189,7 @@ def _coverage_lines(as_of: datetime, rates, curve, wti_ref: float) -> list[str]:
     return [
         "coverage grid uses June-quarter facts from overrides.yaml "
         "(operating income 1864, net interest 144, gallons 1122, debt 13952, variable share 0.22). "
-        "The new note is excluded: the July 10 DGS10 vintage is not in the fixtures, so no coupon was applied. "
+        f"{coupon_line} "
         f"Coverage threshold {_COVERAGE_THRESHOLD:.1f} is the worked-example placeholder, not a verified covenant.",
         (
             f"hold coverage P10 {hold['P10']:.2f}x P50 {hold['P50']:.2f}x P90 {hold['P90']:.2f}x; "
@@ -212,6 +235,6 @@ def replay_lines(doc: dict | None = None) -> list[str]:
         f"coverage about {REALIZED_COVERAGE:.0f}x."
     )
     wti_ref = float(doc["wti_ref_q2"]["mean"]) if doc.get("wti_ref_q2") else 0.0
-    lines.extend(_coverage_lines(as_of, rates, curve, wti_ref))
+    lines.extend(_coverage_lines(as_of, rates, curve, wti_ref, doc))
     lines.append("one case study, not a statistical result")
     return lines

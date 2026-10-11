@@ -44,6 +44,7 @@ Two terminals:
 ```bash
 make api      # API on http://127.0.0.1:8000/api/v1 (one worker; it also runs the data recorder and alerts)
 make ui       # Streamlit on http://127.0.0.1:8501
+make web      # TypeScript app on http://127.0.0.1:5173 (first run: cd frontend && npm install)
 ```
 
 Then, with the API running:
@@ -128,6 +129,7 @@ Still open:
 | Item | Effect |
 | --- | --- |
 | `.env` keys (`SEC_USER_AGENT`, `FRED_API_KEY`, and LLM keys if you want a written brief) | `make api` will not load settings, and ingest cannot fetch FRED, until those are filled in. The app and the tests run without them. |
-| July 10 Treasury yield | the replay coverage grid excludes the new note, because that day's `DGS10` vintage is not in the fixtures |
+| July 10 Treasury yield | filled from FRED: the print visible on July 10 is the July 9 yield, 4.54% (`realtime_start` 2026-07-10). The replay note is $1,000M at 6.04% (that yield plus the 150 bp demo spread). There is no July 10 observation. |
+| United and American variable-rate share | the June 30, 2026 10-Qs do not state a share. United discloses $11.2B of floating-rate principal subject to increased-cost provisions; American lists facilities one by one. Neither share is derived, so both stay out of the peer table. |
 | Calibration liquidity | `calibration.yaml` has the last price and the outcome, not volume, so the Brier score is reported and the liquidity buckets are not |
 | Two demo rehearsals | still to do together |

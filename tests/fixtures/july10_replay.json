@@ -9,6 +9,14 @@
     "n": 62,
     "mean": 95.65
   },
+  "dgs10": {
+    "series": "DGS10",
+    "source": "FRED series/observations, vintage window through 2026-07-10",
+    "obs_date": "2026-07-09",
+    "value": 4.54,
+    "realtime_start": "2026-07-10",
+    "note": "FRED has no July 10 observation. The print visible on July 10 is the July 9 yield, 4.54, first released with realtime_start 2026-07-10."
+  },
   "fed": [
     {
       "ticker": "KXFEDDECISION-26JUL-H0",

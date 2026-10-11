@@ -103,6 +103,18 @@ def test_finish_brief_ready_when_the_numbers_check_out(store):
     assert saved.brief.template_md == run.brief.template_md  # the template is kept
 
 
+def test_finish_brief_repairs_a_draft_that_invents_a_number(store):
+    service = svc(store, ScriptedLLM(INVENTED, GOOD))
+    run = new_run(service)
+    service.finish_brief(run.run_id)
+    saved = store.get_run(run.run_id)
+    assert saved.brief.llm_status == "ready" and saved.brief.llm_md == GOOD
+    assert service.llm.calls[1]["task"] == "write_brief_repair"
+    payload = json.loads(service.llm.calls[1]["user"])
+    assert "2.41" in payload["problems"][0]
+    assert "1454" in payload["allowed_numbers"]
+
+
 @pytest.mark.parametrize("md", [INVENTED, " ".join(["word"] * 401)])
 def test_finish_brief_rejected_keeps_the_template(store, md):
     service = svc(store, ScriptedLLM(md))
