@@ -202,6 +202,43 @@ def test_peers_page_without_a_run_asks_for_one(api):
     assert any("Run a question first" in i.value for i in at.info)
 
 
+# ---- Alerts page (C12) ----
+
+ALERTS = [
+    {"alert_id": "alert_2", "ts": "2026-10-09T15:00:00Z", "company": "DAL", "run_id": "run_2", "rule": "BREACH_FLIP",
+     "dedup_key": "DAL:BREACH_FLIP:-", "severity": "high", "status": "failed",
+     "payload": {"before": 0.074, "after": 0.297, "threshold": 0.2}},
+    {"alert_id": "alert_1", "ts": "2026-10-09T14:00:00Z", "company": "DAL", "run_id": None, "rule": "DATA_STALE",
+     "dedup_key": "DAL:DATA_STALE:kalshi", "severity": "low", "status": "sent",
+     "payload": {"source": "kalshi", "status": "degraded"}},
+]
+
+
+def test_alerts_page_lists_the_feed_and_marks_undelivered_alerts(api):
+    api.get("/alerts").respond(200, json=ALERTS)
+    at = open_page(start(), "Alerts")
+    table = at.dataframe[0].value
+    assert list(table["Rule"]) == ["BREACH_FLIP", "DATA_STALE"]
+    assert list(table["Delivery"]) == ["NOT DELIVERED", "sent"]
+    assert "7.4% -> 29.7%" in list(table["Detail"])[0]
+
+
+def test_alerts_page_sends_a_test_alert(api):
+    api.get("/alerts").respond(200, json=[])
+    test = api.post("/admin/alerts/test").respond(200, json={"delivered": True})
+    at = open_page(start(), "Alerts")
+    next(b for b in at.button if b.label == "Send test alert").click().run()
+    assert test.call_count == 1 and any("delivered" in s.value for s in at.success)
+
+
+def test_alerts_page_shows_a_failed_test_alert(api):
+    api.get("/alerts").respond(200, json=[])
+    api.post("/admin/alerts/test").respond(502, json=envelope("E_SOURCE_UNAVAILABLE", "Slack did not accept the test alert"))
+    at = open_page(start(), "Alerts")
+    next(b for b in at.button if b.label == "Send test alert").click().run()
+    assert "E_SOURCE_UNAVAILABLE" in "\n".join(e.value for e in at.error)
+
+
 # ---- errors ----
 
 def test_error_banner_shows_code_message_and_missing_facts(api):

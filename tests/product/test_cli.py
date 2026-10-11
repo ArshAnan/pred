@@ -95,6 +95,34 @@ def test_unreachable_api_exits_2_and_says_where_it_looked(api, capsys):
     assert BASE in capsys.readouterr().err
 
 
+def alert(rule="BREACH_FLIP", status="sent"):
+    return {"alert_id": "alert_1", "ts": "2026-10-09T14:30:00Z", "company": "DAL", "run_id": "run_1", "rule": rule,
+            "dedup_key": f"DAL:{rule}:-", "severity": "high", "status": status,
+            "payload": {"before": 0.074, "after": 0.297}}
+
+
+def test_flip_runs_a_low_then_a_high_threshold_tick(api, capsys):
+    tick = api.post("/admin/alerts/tick").mock(side_effect=[
+        httpx.Response(200, json={"alerts": []}), httpx.Response(200, json={"alerts": [alert()]})])
+    assert run("flip") == 0
+    assert [json.loads(c.request.content) for c in tick.calls] == [{"coverage_threshold": 3.0}, {"coverage_threshold": 6.0}]
+    out = capsys.readouterr().out
+    assert "BREACH_FLIP" in out and "sent" in out
+
+
+def test_flip_that_does_not_flip_exits_1(api, capsys):
+    api.post("/admin/alerts/tick").respond(200, json={"alerts": []})
+    assert run("flip", "--low", "2", "--high", "4") == 1
+    assert "No BREACH_FLIP" in capsys.readouterr().out
+
+
+def test_flip_reports_an_undelivered_alert(api, capsys):
+    api.post("/admin/alerts/tick").mock(side_effect=[
+        httpx.Response(200, json={"alerts": []}), httpx.Response(200, json={"alerts": [alert(status="failed")]})])
+    assert run("flip") == 1
+    assert "not delivered" in capsys.readouterr().out
+
+
 def test_eval_is_not_wired_yet(capsys):
     assert run("eval") == 2
     assert "C14" in capsys.readouterr().err

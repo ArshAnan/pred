@@ -25,8 +25,8 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from airscen import config, service, store
 from airscen.types import (
-    AirScenError, Company, Fact, Factor, HealthStatus, LLMStatus, MarketView, RequestError, RunRequest, RunResult,
-    RunSummary, Snapshot, StoreError, Venue, WorkerStatus,
+    AirScenError, Alert, Company, Fact, Factor, HealthStatus, LLMStatus, MarketView, RequestError, RunRequest, RunResult,
+    RunSummary, Snapshot, SourceError, StoreError, Venue, WorkerStatus,
 )
 
 PREFIX = "/api/v1"
@@ -34,6 +34,7 @@ DB_PATH = Path("data") / "app.db"
 MAX_BODY_BYTES = 64 * 1024
 IDEMPOTENCY_TTL_S = 600
 HISTORY_DEFAULT_DAYS = 1
+ALERTS_DEFAULT_DAYS = 30
 
 # D3: the only codes the API sends with their own status; anything else is 500 E_INTERNAL.
 HTTP_STATUS = {
@@ -68,14 +69,18 @@ def create_app(
     clock: Callable[[], datetime] | None = None,
     monotonic: Callable[[], float] = time.monotonic,
     job_runners: Callable[[Any, Any], dict[str, service.JobRunner]] | None = None,
-    worker_factory: Callable[[Any, Any], Any] | None = None,
+    worker_factory: Callable[..., Any] | None = None,
     llm_factory: Callable[[Any, Any], Any] | None = None,
+    alerts_factory: Callable[[Any, Any, Any, Callable], Any] | None = None,
 ) -> FastAPI:
     """Build the app. Tests pass fakes and clocks; the real app uses lane A's loader and Repository.
 
-    worker_factory(settings, repo) returns lane A's WorkerLoop (CP0_DECISIONS D5). It runs inside
-    this one API process (DD-2): started here, stopped on shutdown, its status shown on /health.
+    worker_factory(settings, repo, after_market_tick=...) returns lane A's WorkerLoop (CP0_DECISIONS D5).
+    It runs inside this one API process (DD-2): started here, stopped on shutdown, its status shown on
+    /health, and the alert engine's tick is its after_market_tick.
     llm_factory(settings, repo) returns lane B's LLMClient; without one, briefs stay template-only.
+    alerts_factory(settings, repo, service, status_fn) returns the alert engine (C11); without one,
+    alerts are off but the feed still reads the store.
     """
     now = clock or (lambda: datetime.now(timezone.utc))
 
@@ -97,9 +102,17 @@ def create_app(
             app.state.service = service.RunService(repo=repo, settings=app.state.settings, llm=llm, clock=now)
         except StoreError as e:
             _log("error", "db_unavailable", error_code=e.code, message=e.message)
+        app.state.alerts = None
+        if alerts_factory is not None and app.state.service is not None:
+            try:
+                app.state.alerts = alerts_factory(app.state.settings, app.state.repo, app.state.service,
+                                                  lambda: _worker_status(app.state))
+            except Exception:
+                log.exception("alert engine could not be built; alerts are off")
         if worker_factory is not None and app.state.repo is not None:
             try:
-                worker = worker_factory(app.state.settings, app.state.repo)
+                tick = app.state.alerts.tick if app.state.alerts is not None else None
+                worker = worker_factory(app.state.settings, app.state.repo, after_market_tick=tick)
                 worker.start()
                 app.state.worker = worker
             except Exception as e:  # keep serving runs; /health reports the worker as degraded
@@ -118,7 +131,7 @@ def create_app(
                     log.exception("worker failed to stop")
 
     app = FastAPI(title="AirScen API", version="1", lifespan=lifespan)
-    app.state.settings = app.state.repo = app.state.service = app.state.worker = None
+    app.state.settings = app.state.repo = app.state.service = app.state.worker = app.state.alerts = None
     app.state.worker_failed = False
     app.state.now = now
     app.state.idempotency = _IdempotencyKeys(IDEMPOTENCY_TTL_S, monotonic)
@@ -216,7 +229,55 @@ def _router() -> APIRouter:
     def job_status(request: Request, job_id: str) -> JobStatus:
         return JobStatus(**request.app.state.jobs.get(job_id))
 
+    @router.get("/alerts", response_model=list[Alert])
+    def alerts(
+        request: Request, company: Optional[str] = None, since: Optional[datetime] = None,
+        limit: int = Query(50, ge=1, le=200),
+    ) -> list[Alert]:
+        state = request.app.state
+        if state.repo is None:
+            raise StoreError("The database is unavailable")
+        known = [c.ticker for c in state.settings.companies]
+        if company is not None and company not in known:
+            raise RequestError(f"Unknown ticker {company}", code="E_NOT_FOUND", details={"ticker": company})
+        since = _aware(since, "since") if since else state.now() - timedelta(days=ALERTS_DEFAULT_DAYS)
+        feed = [a for c in ([company] if company else known) for a in state.repo.alerts(c, since)]
+        return sorted(feed, key=lambda a: (a.ts, a.alert_id), reverse=True)[:limit]
+
+    @router.post("/admin/alerts/test", response_model=AlertTestResult)
+    def alerts_test(request: Request) -> AlertTestResult:
+        if not _alert_engine(request).send_test():
+            raise SourceError("Slack did not accept the test alert after 3 attempts (check SLACK_WEBHOOK_URL)")
+        return AlertTestResult(delivered=True)
+
+    @router.post("/admin/alerts/tick", response_model=AlertTickResult)
+    def alerts_tick(request: Request, req: Optional[AlertTickRequest] = None) -> AlertTickResult:
+        """Evaluate alerts now (as the worker does each market tick). Demo lever: a coverage_threshold
+        for this tick only, so two calls (3.0 then 6.0 on the worked example) force a BREACH_FLIP."""
+        threshold = req.coverage_threshold if req else None
+        return AlertTickResult(alerts=_alert_engine(request).tick(request.app.state.now(), coverage_threshold=threshold))
+
     return router
+
+
+class AlertTestResult(BaseModel):
+    delivered: bool
+
+
+class AlertTickRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    coverage_threshold: Optional[float] = Field(None, gt=0, le=50)
+
+
+class AlertTickResult(BaseModel):
+    alerts: list[Alert]
+
+
+def _alert_engine(request: Request) -> Any:
+    engine = request.app.state.alerts
+    if engine is None:
+        raise SourceError("Alerts are not configured in this API process")
+    return engine
 
 
 class IngestRequest(BaseModel):

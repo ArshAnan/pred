@@ -25,7 +25,7 @@ def build(worker=None, store=None, repo_error=None, factory_calls=None, **kw):
             raise repo_error
         return store or FakeStore()
 
-    def worker_factory(settings, repo):
+    def worker_factory(settings, repo, after_market_tick=None):
         if factory_calls is not None:
             factory_calls.append((settings, repo))
         return worker

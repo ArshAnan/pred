@@ -134,22 +134,31 @@ class AlertEngine:
             minutes=0 if alert.rule == "DATA_STALE" else self.settings.alerts.cooldown_min)
         return done
 
-    def tick(self, now: datetime) -> None:
-        """The worker's after_market_tick: evaluate every watched company. Never raises."""
+    def tick(self, now: datetime, coverage_threshold: float | None = None) -> list[Alert]:
+        """The worker's after_market_tick: evaluate every watched company. Never raises.
+
+        coverage_threshold overrides alerts.watch_inputs for this tick only; POST /admin/alerts/tick
+        uses it to force a BREACH_FLIP in the demo. Returns the alerts delivered on this tick.
+        """
+        delivered = []
         for company in self.settings.alerts.watch:
             try:
                 w = self.settings.alerts.watch_inputs
                 run = self.service.create_run(RunRequest(
                     ticker=company, as_of=now, note_size_usd_m=w.note_size_usd_m, tenor_years=w.tenor_years,
-                    coupon_spread_bp=w.coupon_spread_bp, coverage_threshold=w.coverage_threshold,
-                    fuel_passthrough=w.fuel_passthrough, include_peers=False))
+                    coupon_spread_bp=w.coupon_spread_bp, fuel_passthrough=w.fuel_passthrough, include_peers=False,
+                    coverage_threshold=coverage_threshold if coverage_threshold is not None else w.coverage_threshold))
                 alerts = self.evaluate(company, run, self._previous.get(company))
                 alerts += self.driver_moves(company, run, now) + self.data_stale(company, run, now)
                 self._previous[company] = run
-                for a in alerts:
-                    self.deliver(a)
+                delivered += [self.deliver(a) for a in alerts]
             except Exception:
                 log.exception("alert evaluation failed for %s", company)
+        return delivered
+
+    def send_test(self) -> bool:
+        """POST /admin/alerts/test: one plain message through the same Slack path."""
+        return self.slack.send("AirScen test alert: the Slack webhook works. No action needed.")
 
     # ---- helpers ----
 

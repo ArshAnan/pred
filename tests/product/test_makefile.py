@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
-WORKING = ["setup", "api", "ui", "test", "ingest", "backfill"]
+WORKING = ["setup", "api", "ui", "test", "ingest", "backfill", "flip"]
 PLACEHOLDERS = ["warm", "eval"]
 
 pytestmark = pytest.mark.skipif(shutil.which("make") is None, reason="make not installed")
@@ -67,6 +67,10 @@ def test_ingest_target_runs_the_cli():
 
 def test_backfill_target_passes_the_window_to_the_cli():
     assert "-m airscen.cli backfill --window 2026-07-01..2026-07-12" in dry_run("backfill", "WINDOW=2026-07-01..2026-07-12")
+
+
+def test_flip_target_runs_the_cli():
+    assert "-m airscen.cli flip" in dry_run("flip")
 
 
 def test_backfill_without_window_fails_with_usage():

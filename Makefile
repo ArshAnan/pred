@@ -23,7 +23,7 @@ UI_PORT ?= 8501
 PYTEST_ARGS ?=
 
 .DEFAULT_GOAL := help
-.PHONY: help setup api ui test ingest backfill warm eval
+.PHONY: help setup api ui test ingest backfill flip warm eval
 
 help:
 	@echo Targets:
@@ -33,6 +33,7 @@ help:
 	@echo   test      run pytest, extra flags via PYTEST_ARGS=...
 	@echo   ingest    fetch markets, filings and macro through the API, needs make api running
 	@echo   backfill  backfill quotes for a replay window, usage: make backfill WINDOW=2026-07-01..2026-07-12
+	@echo   flip      demo: force a BREACH_FLIP alert to Slack, needs make api running
 	@echo   warm      placeholder until C14
 	@echo   eval      placeholder until C14
 
@@ -58,6 +59,10 @@ ingest:
 
 backfill:
 	$(if $(WINDOW),$(PY) -m airscen.cli backfill --window $(WINDOW),$(error usage: make backfill WINDOW=2026-07-01..2026-07-12))
+
+# Demo: force a BREACH_FLIP through the real alert state machine (needs make api running).
+flip:
+	$(PY) -m airscen.cli flip
 
 # Placeholders: fail loudly so nobody mistakes them for a working step.
 warm:

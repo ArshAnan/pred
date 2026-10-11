@@ -2,6 +2,7 @@
 
     python -m airscen.cli ingest [--sources markets,filings,macro] [--tickers DAL,UAL] [--no-wait]
     python -m airscen.cli backfill --window 2026-07-01..2026-07-12 [--tickers DAL] [--no-wait]
+    python -m airscen.cli flip [--low 3.0] [--high 6.0]        # demo: force a BREACH_FLIP alert
 
 Exit codes: 0 the job succeeded (or was started with --no-wait), 1 the job finished with errors,
 2 the API refused the request or could not be reached.
@@ -34,6 +35,26 @@ def backfill(client: ApiClient, window: str, tickers: list[str] | None = None,
     if tickers:
         body["tickers"] = tickers
     return _start(client, body, wait, sleep)
+
+
+def flip(client: ApiClient, low: float = 3.0, high: float = 6.0) -> int:
+    """Demo: force a BREACH_FLIP. One alert tick at a low coverage threshold (breach unlikely), then one at
+    a high threshold (breach likely), through POST /admin/alerts/tick and the real alert state machine.
+    On the worked example, 3.0 gives p_breach about 0.074 and 6.0 gives 0.297, crossing 0.20."""
+    try:
+        client.post("/admin/alerts/tick", {"coverage_threshold": low})
+        alerts = client.post("/admin/alerts/tick", {"coverage_threshold": high})["alerts"]
+    except ApiError as e:
+        print(f"{e.code}: {e.message}", file=sys.stderr)
+        return 2
+    flips = [a for a in alerts if a["rule"] == "BREACH_FLIP"]
+    for a in alerts:
+        delivered = "sent to Slack" if a["status"] == "sent" else "not delivered (saved in the feed as failed)"
+        print(f"{a['rule']} {a['company']}: {a['payload'].get('before')} -> {a['payload'].get('after')}, {delivered}")
+    if not flips:
+        print("No BREACH_FLIP: the answer did not cross the threshold from below, or the alert is cooling down (60 min).")
+        return 1
+    return 0 if all(a["status"] == "sent" for a in flips) else 1
 
 
 def eval() -> int:  # noqa: A001 - the LLD names the command `eval`
@@ -74,12 +95,17 @@ def main(argv: list[str] | None = None, sleep: Callable[[float], None] = time.sl
     for p in (p_ingest, p_backfill):
         p.add_argument("--tickers", type=_csv, help="comma-separated tickers (default all configured)")
         p.add_argument("--no-wait", action="store_true", help="return once the job has started")
+    p_flip = sub.add_parser("flip", help="demo: force a BREACH_FLIP alert (two alert ticks)")
+    p_flip.add_argument("--low", type=float, default=3.0, help="coverage threshold for the first tick")
+    p_flip.add_argument("--high", type=float, default=6.0, help="coverage threshold for the second tick")
     sub.add_parser("eval", help="run the evaluation checks (C14)")
     args = parser.parse_args(argv)
 
     if args.command == "eval":
         return eval()
     client = ApiClient()
+    if args.command == "flip":
+        return flip(client, args.low, args.high)
     if args.command == "ingest":
         return ingest(client, args.sources, args.tickers, wait=not args.no_wait, sleep=sleep)
     return backfill(client, args.window, args.tickers, wait=not args.no_wait, sleep=sleep)

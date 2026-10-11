@@ -245,6 +245,40 @@ def peers_page() -> None:
     st.dataframe(peer_rows(result, configured), hide_index=True, use_container_width=True)
 
 
+def alert_detail(a: dict) -> str:
+    p = a.get("payload", {})
+    if a["rule"] == "BREACH_FLIP":
+        return f"breach probability {pct(p.get('before'))} -> {pct(p.get('after'))}"
+    if a["rule"] == "DRIVER_MOVE":
+        return f"{p.get('title', p.get('market_id', '?'))} moved {p.get('move_pp', '?')} points"
+    return f"source {p.get('source', '?')} is {p.get('status', '?')}"
+
+
+def alerts_page() -> None:
+    st.title("Alerts")
+    st.caption("Alerts fire when the answer flips (BREACH_FLIP), a driver market jumps (DRIVER_MOVE) or a data "
+               "source is down (DATA_STALE). Undelivered alerts stay here even if Slack failed.")
+    if st.button("Send test alert"):
+        try:
+            client().post("/admin/alerts/test", None)
+            st.success("Test alert delivered to Slack.")
+        except ApiError as e:
+            error_banner(e)
+    try:
+        feed = client().get("/alerts", {"limit": 200})
+    except ApiError as e:
+        error_banner(e)
+        return
+    if not feed:
+        st.info("No alerts yet. For the demo, run `make flip` while `make api` is running.")
+        return
+    st.dataframe([{
+        "Time (UTC)": a["ts"].replace("T", " ").replace("Z", ""), "Company": a["company"], "Rule": a["rule"],
+        "Severity": a["severity"], "Delivery": "NOT DELIVERED" if a["status"] == "failed" else a["status"],
+        "Detail": alert_detail(a), "Run": a.get("run_id") or "-",
+    } for a in feed], hide_index=True, use_container_width=True)
+
+
 def run_page() -> None:
     st.title("Market-implied scenario run")
     st.caption("A conditional answer given market-implied odds and stated assumptions. Not a forecast or trading signal.")
@@ -261,7 +295,7 @@ def run_page() -> None:
         show_result(result)
 
 
-PAGES = {"Run": run_page, "Peers": peers_page}
+PAGES = {"Run": run_page, "Peers": peers_page, "Alerts": alerts_page}
 
 
 def main() -> None:
