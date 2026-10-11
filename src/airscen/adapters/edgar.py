@@ -96,10 +96,16 @@ class Edgar:
     def xbrl_facts(self, cik, tags):
         rows = []
         for tag in tags:
-            payload = self._client.get_json(
-                f"/api/xbrl/companyconcept/CIK{_cik_text(int(cik))}/us-gaap/{tag}.json",
-                None,
-            )
+            try:
+                payload = self._client.get_json(
+                    f"/api/xbrl/companyconcept/CIK{_cik_text(int(cik))}/us-gaap/{tag}.json",
+                    None,
+                )
+            except SourceError as exc:
+                # us-gaap/Liabilities.json is NoSuchKey for Delta. Keep the tags that exist.
+                if exc.details.get("status") == 404 or "404" in exc.message:
+                    continue
+                raise
             for unit, facts in (payload.get("units") or {}).items():
                 for fact in facts:
                     rows.append({

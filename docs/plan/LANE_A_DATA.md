@@ -50,11 +50,21 @@ Format of each item: task → LLD reference → **Done when**.
 
 ## Block 3 → CP3 Full features
 
-- [ ] **A15** UAL and AAL: run extraction on their latest releases, hand-fill `overrides.yaml`, confirm press-release layouts. **Done when** both have all required metrics, or a clear note of which metric is missing and why.
-- [ ] **A16** Replay data for July 10: DAL June-quarter facts (filed 2026-07-10) hand-filled from that release, FRED observations visible at that date, and backfill. **Done when** `latest_facts("DAL", 2026-07-10)` returns June-quarter values.
-- [ ] **A17** Backfill job: Kalshi 60-min candles and Polymarket 3-hour history for the shortlist over `WINDOW=2026-07-01..2026-07-12`, `src` set to backfill, gaps reported. Confirm the July coverage really exists (HLD limit). **Done when** `make backfill WINDOW=...` writes snapshots and B can run the replay.
-- [ ] **A18** `adapters/gdelt.py` (`headlines(query, before, hours, n)`, failures ignored by callers) and `adapters/alpaca.py` (`daily_bars`; verify the bars path — open item). **Done when** recorded responses parse.
-- [ ] **A19** (optional) When a 10-Q arrives, cross-check against XBRL and set `FACT_CONFLICT`. Skip if behind.
+- [x] **A15** UAL and AAL: run extraction on their latest releases, hand-fill `overrides.yaml`, confirm press-release layouts. **Done when** both have all required metrics, or a clear note of which metric is missing and why.
+
+  Latest earnings exhibits in the filing index: United `ual_erx06302026xex991.htm` (8-K filed 2026-07-15) and American `a8kerexhibit991q2-26.htm` (8-K filed 2026-07-23). Neither had reported a September-quarter release by 2026-10-11. Figures that are not in the release are listed under `missing:` instead of being filled in. United's GAAP debt line includes other financial liabilities. American prints no debt total, so `debt_total` is 3,094 + 25,833. American's equity is a stockholders' deficit of 3,972.
+- [x] **A16** Replay data for July 10: DAL June-quarter facts (filed 2026-07-10) hand-filled from that release, FRED observations visible at that date, and backfill. **Done when** `latest_facts("DAL", 2026-07-10)` returns June-quarter values.
+
+  June facts use `filed_at` 2026-07-10T00:00:00Z so an as-of on that calendar day can see them. FRED vintages for that date are not loaded: this checkout has no `FRED_API_KEY`.
+- [x] **A17** Backfill job: Kalshi 60-min candles and Polymarket 3-hour history for the shortlist over `WINDOW=2026-07-01..2026-07-12`, `src` set to backfill, gaps reported. Confirm the July coverage really exists (HLD limit). **Done when** `make backfill WINDOW=...` writes snapshots and B can run the replay.
+
+  `WorkerLoop.backfill` writes 60-minute Kalshi candles (`src=backfill_kalshi`) and 3-hour Polymarket history (`src=backfill_polymarket`) and returns markets with no rows. `make backfill` is still Lane C's placeholder. Live check on 2026-10-11: `KXWTI-26OCT1314-T102.99` has zero candlesticks in 2026-07-01..2026-07-12 (saved as `kalshi_candles_july_window.json`). `/historical/markets?series_ticker=KXWTI` returns markets, and the first page of 100 closes on 2026-08-04..2026-08-07, which is after that window. July event tickers `KXWTI-26JUL02` and `KXWTI-26JUL10` returned no historical markets. The July window is a gap for the current shortlist, not a parser failure.
+- [x] **A18** `adapters/gdelt.py` (`headlines(query, before, hours, n)`, failures ignored by callers) and `adapters/alpaca.py` (`daily_bars`; verify the bars path — open item). **Done when** recorded responses parse.
+
+  GDELT DOC returned HTTP 429 from this machine (`gdelt_429.txt`); no article list was recorded, and a non-article body parses as no headlines. Alpaca without keys returns nginx 401 for both `GET /v2/stocks/bars?feed=iex` and a bogus path (`alpaca_bars_401.html`), so the bars route is still unverified and no bar body was invented. `daily_bars` does not call out when the keys are blank.
+- [x] **A19** (optional) When a 10-Q arrives, cross-check against XBRL and set `FACT_CONFLICT`. Skip if behind.
+
+  Delta's 10-Q for the quarter ended 2026-09-30 is accession `0000027904-26-000038`, filed 2026-10-09. `us-gaap/Assets` is 86,048 million and `StockholdersEquity` is 22,513 million, the same figures as the 8-K overrides, so the cross-check does not set `FACT_CONFLICT`. June 30 equity is 21,815 million, also a match. `us-gaap/Liabilities.json` is NoSuchKey; `xbrl_facts` skips a 404 and keeps the concepts that exist. A unit test covers a real disagreement.
 - [ ] **CP3 merged** — your part of the exit test: replay run at July 10 finds facts and backfilled quotes.
 
 ## Block 4 → CP4 Eval and demo freeze

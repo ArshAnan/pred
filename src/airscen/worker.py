@@ -15,9 +15,9 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
-from airscen.adapters import alpaca as alpaca_mod
-from airscen.adapters import gdelt as gdelt_mod
+from airscen.adapters.alpaca import Alpaca
 from airscen.adapters.edgar import Edgar
+from airscen.adapters.gdelt import Gdelt
 from airscen.adapters.fred import DCOILWTICO, DGS10, Fred
 from airscen.adapters.http import SourceClient
 from airscen.adapters.kalshi import Kalshi
@@ -94,8 +94,20 @@ def build_adapters(settings: Settings) -> Adapters:
             SourceClient("fred", "https://api.stlouisfed.org/fred", 2, {}),
             settings.fred_api_key,
         ),
-        alpaca=alpaca_mod,
-        gdelt=gdelt_mod,
+        alpaca=Alpaca(
+            SourceClient(
+                "alpaca", "https://data.alpaca.markets/v2", 3,
+                {
+                    "APCA-API-KEY-ID": settings.alpaca_key_id,
+                    "APCA-API-SECRET-KEY": settings.alpaca_secret_key,
+                },
+            ),
+            settings.alpaca_key_id,
+            settings.alpaca_secret_key,
+        ),
+        gdelt=Gdelt(SourceClient(
+            "gdelt", "https://api.gdeltproject.org/api/v2/doc/doc", 1, {},
+        )),
     )
 
 

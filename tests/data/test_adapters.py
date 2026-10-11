@@ -4,11 +4,13 @@ import json
 from datetime import date, datetime, timezone
 from pathlib import Path
 
+from airscen.adapters.alpaca import Alpaca
 from airscen.adapters.edgar import Edgar
 from airscen.adapters.fred import parse_observations
+from airscen.adapters.gdelt import Gdelt, parse_articles
 from airscen.adapters.kalshi import Kalshi, snapshot_from_market
 from airscen.adapters.polymarket import Polymarket, last_trade, market_meta
-from airscen.types import MarketKind
+from airscen.types import MarketKind, SourceError
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "vendors"
 
@@ -157,6 +159,49 @@ def test_edgar_resolves_airlines_and_caches_the_8k(tmp_path):
     assert facts[0]["end"]
     assert facts[0]["filed"]
     assert facts[0]["tag"] == "Assets"
+
+
+def test_xbrl_skips_a_missing_concept():
+    class _Client(FakeClient):
+        def get_json(self, path, params):
+            if path.endswith("/Liabilities.json"):
+                raise SourceError(
+                    "edgar returned HTTP 404",
+                    code="E_SOURCE_BAD_RESPONSE",
+                    details={"status": 404},
+                )
+            return super().get_json(path, params)
+
+    edgar = Edgar(_Client(tables={"us-gaap/Assets.json": _load("sec_dal_assets_concept.json")}))
+    facts = edgar.xbrl_facts(27904, ["Assets", "Liabilities"])
+    assert {row["tag"] for row in facts} == {"Assets"}
+
+
+def test_gdelt_requests_an_artlist_and_ignores_a_non_article_body():
+    client = FakeClient(pages=[{"articles": []}])
+    rows = Gdelt(client).headlines("Delta Air Lines", datetime(2026, 10, 10, tzinfo=timezone.utc), 24, 3)
+    assert rows == []
+    _path, params = client.gets[0]
+    assert params["mode"] == "artlist"
+    assert params["format"] == "json"
+    assert params["maxrecords"] == "3"
+    rate_limit = (FIXTURES / "gdelt_429.txt").read_text()
+    assert parse_articles(rate_limit) == []
+
+
+def test_alpaca_refuses_to_call_without_keys():
+    client = FakeClient()
+    try:
+        Alpaca(client, "", "").daily_bars(["DAL"], date(2026, 7, 1), date(2026, 7, 12))
+    except SourceError as exc:
+        assert exc.code == "E_SOURCE_AUTH"
+    else:
+        raise AssertionError("missing Alpaca keys should fail")
+    assert client.gets == []
+    barred = Alpaca(FakeClient(pages=[{"bars": {}}]), "key", "secret").daily_bars(
+        ["DAL"], date(2026, 7, 1), date(2026, 7, 12),
+    )
+    assert barred == []
 
 
 def test_fred_parses_dgs10_and_skips_missing_values():
