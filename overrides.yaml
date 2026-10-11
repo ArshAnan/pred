@@ -143,7 +143,7 @@ facts:
     unit: usd_m
     basis: GAAP
     period_end: 2026-06-30
-    filed_at: 2026-07-10T12:00:00Z
+    filed_at: 2026-07-10T00:00:00Z
     source_url: https://www.sec.gov/Archives/edgar/data/27904/000002790426000029/deltaairlinesannouncesjune.htm
     # Operating Income 1,864 for the three months ended June 30, 2026
   - company: DAL
@@ -152,7 +152,7 @@ facts:
     unit: usd_m
     basis: GAAP
     period_end: 2026-06-30
-    filed_at: 2026-07-10T12:00:00Z
+    filed_at: 2026-07-10T00:00:00Z
     source_url: https://www.sec.gov/Archives/edgar/data/27904/000002790426000029/deltaairlinesannouncesjune.htm
     # Interest expense, net (144)
   - company: DAL
@@ -161,7 +161,7 @@ facts:
     unit: gallons_m
     basis: GAAP
     period_end: 2026-06-30
-    filed_at: 2026-07-10T12:00:00Z
+    filed_at: 2026-07-10T00:00:00Z
     source_url: https://www.sec.gov/Archives/edgar/data/27904/000002790426000029/deltaairlinesannouncesjune.htm
     # Fuel gallons consumed (millions) 1,122
   - company: DAL
@@ -170,7 +170,7 @@ facts:
     unit: usd_per_gal
     basis: GAAP
     period_end: 2026-06-30
-    filed_at: 2026-07-10T12:00:00Z
+    filed_at: 2026-07-10T00:00:00Z
     source_url: https://www.sec.gov/Archives/edgar/data/27904/000002790426000029/deltaairlinesannouncesjune.htm
     # Average price per fuel gallon $ 3.66
   - company: DAL
@@ -179,7 +179,7 @@ facts:
     unit: usd_per_gal
     basis: ADJUSTED
     period_end: 2026-06-30
-    filed_at: 2026-07-10T12:00:00Z
+    filed_at: 2026-07-10T00:00:00Z
     source_url: https://www.sec.gov/Archives/edgar/data/27904/000002790426000029/deltaairlinesannouncesjune.htm
     # Average price per fuel gallon, adjusted $ 3.93
   - company: DAL
@@ -188,7 +188,7 @@ facts:
     unit: usd_m
     basis: GAAP
     period_end: 2026-06-30
-    filed_at: 2026-07-10T12:00:00Z
+    filed_at: 2026-07-10T00:00:00Z
     source_url: https://www.sec.gov/Archives/edgar/data/27904/000002790426000029/deltaairlinesannouncesjune.htm
     # Total debt and finance lease obligations 13,952
   - company: DAL
@@ -197,7 +197,7 @@ facts:
     unit: usd_m
     basis: GAAP
     period_end: 2026-06-30
-    filed_at: 2026-07-10T12:00:00Z
+    filed_at: 2026-07-10T00:00:00Z
     source_url: https://www.sec.gov/Archives/edgar/data/27904/000002790426000029/deltaairlinesannouncesjune.htm
     # Current maturities of debt and finance leases $ 3,442
   - company: DAL
@@ -206,7 +206,7 @@ facts:
     unit: usd_m
     basis: GAAP
     period_end: 2026-06-30
-    filed_at: 2026-07-10T12:00:00Z
+    filed_at: 2026-07-10T00:00:00Z
     source_url: https://www.sec.gov/Archives/edgar/data/27904/000002790426000029/deltaairlinesannouncesjune.htm
     # "Liquidity of $7.7 billion"
   - company: DAL
@@ -215,7 +215,7 @@ facts:
     unit: usd_m
     basis: ADJUSTED
     period_end: 2026-06-30
-    filed_at: 2026-07-10T12:00:00Z
+    filed_at: 2026-07-10T00:00:00Z
     source_url: https://www.sec.gov/Archives/edgar/data/27904/000002790426000029/deltaairlinesannouncesjune.htm
     # Adjusted net debt $ 13,591
   - company: DAL
@@ -224,7 +224,7 @@ facts:
     unit: usd_m
     basis: GAAP
     period_end: 2026-06-30
-    filed_at: 2026-07-10T12:00:00Z
+    filed_at: 2026-07-10T00:00:00Z
     source_url: https://www.sec.gov/Archives/edgar/data/27904/000002790426000029/deltaairlinesannouncesjune.htm
     # Total operating revenue 19,757
   - company: DAL
@@ -233,7 +233,7 @@ facts:
     unit: usd_m
     basis: ADJUSTED
     period_end: 2026-06-30
-    filed_at: 2026-07-10T12:00:00Z
+    filed_at: 2026-07-10T00:00:00Z
     source_url: https://www.sec.gov/Archives/edgar/data/27904/000002790426000029/deltaairlinesannouncesjune.htm
     # Operating revenue, adjusted $ 17,666
   - company: DAL
@@ -242,7 +242,7 @@ facts:
     unit: usd_m
     basis: GAAP
     period_end: 2026-06-30
-    filed_at: 2026-07-10T12:00:00Z
+    filed_at: 2026-07-10T00:00:00Z
     source_url: https://www.sec.gov/Archives/edgar/data/27904/000002790426000029/deltaairlinesannouncesjune.htm
     # Total assets $ 86,321
   - company: DAL
@@ -251,7 +251,7 @@ facts:
     unit: usd_m
     basis: GAAP
     period_end: 2026-06-30
-    filed_at: 2026-07-10T12:00:00Z
+    filed_at: 2026-07-10T00:00:00Z
     source_url: https://www.sec.gov/Archives/edgar/data/27904/000002790426000029/deltaairlinesannouncesjune.htm
     # Total current liabilities 33,604 plus total noncurrent liabilities 30,902
   - company: DAL
@@ -260,7 +260,7 @@ facts:
     unit: usd_m
     basis: GAAP
     period_end: 2026-06-30
-    filed_at: 2026-07-10T12:00:00Z
+    filed_at: 2026-07-10T00:00:00Z
     source_url: https://www.sec.gov/Archives/edgar/data/27904/000002790426000029/deltaairlinesannouncesjune.htm
     # Stockholders' Equity 21,815
   - company: DAL
@@ -269,9 +269,225 @@ facts:
     unit: fraction
     basis: GAAP
     period_end: 2026-06-30
-    filed_at: 2026-07-10T12:00:00Z
+    filed_at: 2026-07-10T00:00:00Z
     source_url: https://www.sec.gov/Archives/edgar/data/27904/000002790426000029/deltaairlinesannouncesjune.htm
     # "78 percent fixed rate debt and 22 percent variable rate debt"
+
+  # United second quarter 2026. Exhibit 99.1 filed 2026-07-15.
+  # https://www.sec.gov/Archives/edgar/data/100517/000010051726000135/ual_erx06302026xex991.htm
+  # The GAAP debt line includes other financial liabilities, which is the total the release prints.
+  - company: UAL
+    metric: operating_income
+    value: 1096
+    unit: usd_m
+    basis: GAAP
+    period_end: 2026-06-30
+    filed_at: 2026-07-15T00:00:00Z
+    source_url: https://www.sec.gov/Archives/edgar/data/100517/000010051726000135/ual_erx06302026xex991.htm
+    # Three months ended June 30, 2026: Operating income 1,096
+  - company: UAL
+    metric: net_interest_expense
+    value: 135
+    unit: usd_m
+    basis: GAAP
+    period_end: 2026-06-30
+    filed_at: 2026-07-15T00:00:00Z
+    source_url: https://www.sec.gov/Archives/edgar/data/100517/000010051726000135/ual_erx06302026xex991.htm
+    # Adjusted EBITDA bridge, three months ended June 30, 2026: Interest expense, net of capitalized interest and interest income 135.
+    # The income statement shows interest expense (343) and interest income 148 on separate lines.
+  - company: UAL
+    metric: fuel_gallons_m
+    value: 1219
+    unit: gallons_m
+    basis: GAAP
+    period_end: 2026-06-30
+    filed_at: 2026-07-15T00:00:00Z
+    source_url: https://www.sec.gov/Archives/edgar/data/100517/000010051726000135/ual_erx06302026xex991.htm
+    # Fuel gallons consumed (millions) 1,219
+  - company: UAL
+    metric: fuel_price_per_gal
+    value: 4.19
+    unit: usd_per_gal
+    basis: GAAP
+    period_end: 2026-06-30
+    filed_at: 2026-07-15T00:00:00Z
+    source_url: https://www.sec.gov/Archives/edgar/data/100517/000010051726000135/ual_erx06302026xex991.htm
+    # Average aircraft fuel price per gallon $ 4.19. The bullet also says "Average fuel price per gallon of $4.19."
+  - company: UAL
+    metric: debt_total
+    value: 26464
+    unit: usd_m
+    basis: GAAP
+    period_end: 2026-06-30
+    filed_at: 2026-07-15T00:00:00Z
+    source_url: https://www.sec.gov/Archives/edgar/data/100517/000010051726000135/ual_erx06302026xex991.htm
+    # Debt, finance lease obligations and other financial liabilities - current and noncurrent (GAAP) $ 26,464
+  - company: UAL
+    metric: debt_current
+    value: 2170
+    unit: usd_m
+    basis: GAAP
+    period_end: 2026-06-30
+    filed_at: 2026-07-15T00:00:00Z
+    source_url: https://www.sec.gov/Archives/edgar/data/100517/000010051726000135/ual_erx06302026xex991.htm
+    # Current maturities of long-term debt, finance leases, and other financial liabilities 2,170
+  - company: UAL
+    metric: liquidity
+    value: 19600
+    unit: usd_m
+    basis: GAAP
+    period_end: 2026-06-30
+    filed_at: 2026-07-15T00:00:00Z
+    source_url: https://www.sec.gov/Archives/edgar/data/100517/000010051726000135/ual_erx06302026xex991.htm
+    # "Ending available liquidity of $19.6 billion." Stated in billions; stored in millions.
+  - company: UAL
+    metric: adjusted_net_debt
+    value: 18105
+    unit: usd_m
+    basis: ADJUSTED
+    period_end: 2026-06-30
+    filed_at: 2026-07-15T00:00:00Z
+    source_url: https://www.sec.gov/Archives/edgar/data/100517/000010051726000135/ual_erx06302026xex991.htm
+    # Adjusted net debt (Non-GAAP) $ 18,105
+  - company: UAL
+    metric: revenue_gaap
+    value: 17672
+    unit: usd_m
+    basis: GAAP
+    period_end: 2026-06-30
+    filed_at: 2026-07-15T00:00:00Z
+    source_url: https://www.sec.gov/Archives/edgar/data/100517/000010051726000135/ual_erx06302026xex991.htm
+    # Total operating revenue 17,672
+  - company: UAL
+    metric: total_assets
+    value: 84569
+    unit: usd_m
+    basis: GAAP
+    period_end: 2026-06-30
+    filed_at: 2026-07-15T00:00:00Z
+    source_url: https://www.sec.gov/Archives/edgar/data/100517/000010051726000135/ual_erx06302026xex991.htm
+    # Total assets $ 84,569
+  - company: UAL
+    metric: total_liabilities
+    value: 67872
+    unit: usd_m
+    basis: GAAP
+    period_end: 2026-06-30
+    filed_at: 2026-07-15T00:00:00Z
+    source_url: https://www.sec.gov/Archives/edgar/data/100517/000010051726000135/ual_erx06302026xex991.htm
+    # Total current liabilities 27,764 plus total noncurrent liabilities 40,108
+  - company: UAL
+    metric: equity
+    value: 16697
+    unit: usd_m
+    basis: GAAP
+    period_end: 2026-06-30
+    filed_at: 2026-07-15T00:00:00Z
+    source_url: https://www.sec.gov/Archives/edgar/data/100517/000010051726000135/ual_erx06302026xex991.htm
+    # Total stockholders' equity 16,697
+
+  # American second quarter 2026. Exhibit 99.1 filed 2026-07-23.
+  # https://www.sec.gov/Archives/edgar/data/6201/000000620126000051/a8kerexhibit991q2-26.htm
+  # debt_total is the sum of the two debt lines the release prints; it does not print a total.
+  - company: AAL
+    metric: operating_income
+    value: 446
+    unit: usd_m
+    basis: GAAP
+    period_end: 2026-06-30
+    filed_at: 2026-07-23T00:00:00Z
+    source_url: https://www.sec.gov/Archives/edgar/data/6201/000000620126000051/a8kerexhibit991q2-26.htm
+    # Three months ended June 30, 2026: Operating income 446
+  - company: AAL
+    metric: net_interest_expense
+    value: 409
+    unit: usd_m
+    basis: GAAP
+    period_end: 2026-06-30
+    filed_at: 2026-07-23T00:00:00Z
+    source_url: https://www.sec.gov/Archives/edgar/data/6201/000000620126000051/a8kerexhibit991q2-26.htm
+    # Interest expense, net (409)
+  - company: AAL
+    metric: fuel_gallons_m
+    value: 1204
+    unit: gallons_m
+    basis: GAAP
+    period_end: 2026-06-30
+    filed_at: 2026-07-23T00:00:00Z
+    source_url: https://www.sec.gov/Archives/edgar/data/6201/000000620126000051/a8kerexhibit991q2-26.htm
+    # Fuel consumption (gallons in millions) 1,204
+  - company: AAL
+    metric: fuel_price_per_gal
+    value: 4.05
+    unit: usd_per_gal
+    basis: GAAP
+    period_end: 2026-06-30
+    filed_at: 2026-07-23T00:00:00Z
+    source_url: https://www.sec.gov/Archives/edgar/data/6201/000000620126000051/a8kerexhibit991q2-26.htm
+    # Average aircraft fuel price including related taxes (dollars per gallon) 4.05
+  - company: AAL
+    metric: debt_total
+    value: 28927
+    unit: usd_m
+    basis: GAAP
+    period_end: 2026-06-30
+    filed_at: 2026-07-23T00:00:00Z
+    source_url: https://www.sec.gov/Archives/edgar/data/6201/000000620126000051/a8kerexhibit991q2-26.htm
+    # 3,094 current maturities plus 25,833 long-term debt and finance leases. No total line is printed.
+  - company: AAL
+    metric: debt_current
+    value: 3094
+    unit: usd_m
+    basis: GAAP
+    period_end: 2026-06-30
+    filed_at: 2026-07-23T00:00:00Z
+    source_url: https://www.sec.gov/Archives/edgar/data/6201/000000620126000051/a8kerexhibit991q2-26.htm
+    # Current maturities of long-term debt and finance leases $ 3,094
+  - company: AAL
+    metric: liquidity
+    value: 11300
+    unit: usd_m
+    basis: GAAP
+    period_end: 2026-06-30
+    filed_at: 2026-07-23T00:00:00Z
+    source_url: https://www.sec.gov/Archives/edgar/data/6201/000000620126000051/a8kerexhibit991q2-26.htm
+    # "ended the second quarter with $11.3 billion of total available liquidity." Stored in millions.
+  - company: AAL
+    metric: revenue_gaap
+    value: 16735
+    unit: usd_m
+    basis: GAAP
+    period_end: 2026-06-30
+    filed_at: 2026-07-23T00:00:00Z
+    source_url: https://www.sec.gov/Archives/edgar/data/6201/000000620126000051/a8kerexhibit991q2-26.htm
+    # Total operating revenues 16,735
+  - company: AAL
+    metric: total_assets
+    value: 64233
+    unit: usd_m
+    basis: GAAP
+    period_end: 2026-06-30
+    filed_at: 2026-07-23T00:00:00Z
+    source_url: https://www.sec.gov/Archives/edgar/data/6201/000000620126000051/a8kerexhibit991q2-26.htm
+    # Total assets $ 64,233
+  - company: AAL
+    metric: total_liabilities
+    value: 68205
+    unit: usd_m
+    basis: GAAP
+    period_end: 2026-06-30
+    filed_at: 2026-07-23T00:00:00Z
+    source_url: https://www.sec.gov/Archives/edgar/data/6201/000000620126000051/a8kerexhibit991q2-26.htm
+    # Total current liabilities 26,756 plus total noncurrent liabilities 41,449
+  - company: AAL
+    metric: equity
+    value: -3972
+    unit: usd_m
+    basis: GAAP
+    period_end: 2026-06-30
+    filed_at: 2026-07-23T00:00:00Z
+    source_url: https://www.sec.gov/Archives/edgar/data/6201/000000620126000051/a8kerexhibit991q2-26.htm
+    # Total stockholders' deficit (3,972)
 
 checks:
   - company: DAL
@@ -290,3 +506,59 @@ checks:
     noncurrent_liabilities: 30902
     source_url: https://www.sec.gov/Archives/edgar/data/27904/000002790426000029/deltaairlinesannouncesjune.htm
     # Debt and finance leases 10,510; Total current liabilities 33,604; Total noncurrent liabilities 30,902
+  - company: UAL
+    period_end: 2026-06-30
+    basis: GAAP
+    debt_noncurrent: 24294
+    current_liabilities: 27764
+    noncurrent_liabilities: 40108
+    source_url: https://www.sec.gov/Archives/edgar/data/100517/000010051726000135/ual_erx06302026xex991.htm
+    # Long-term debt, finance leases, and other financial liabilities 24,294; Total current liabilities 27,764; Total noncurrent liabilities 40,108
+  - company: AAL
+    period_end: 2026-06-30
+    basis: GAAP
+    debt_noncurrent: 25833
+    current_liabilities: 26756
+    noncurrent_liabilities: 41449
+    source_url: https://www.sec.gov/Archives/edgar/data/6201/000000620126000051/a8kerexhibit991q2-26.htm
+    # Long-term debt and finance leases, net of current maturities 25,833; Total current liabilities 26,756; Total noncurrent liabilities 41,449
+
+# Metrics the releases do not state. Kept out of facts so they are not stored as numbers.
+missing:
+  - company: UAL
+    metric: revenue_adjusted
+    period_end: 2026-06-30
+    reason: The July 15, 2026 release states total operating revenue of 17,672 and does not present a separate adjusted operating revenue.
+    source_url: https://www.sec.gov/Archives/edgar/data/100517/000010051726000135/ual_erx06302026xex991.htm
+  - company: UAL
+    metric: fuel_price_per_gal
+    basis: ADJUSTED
+    period_end: 2026-06-30
+    reason: The release states one average aircraft fuel price, $4.19, and no adjusted fuel price.
+    source_url: https://www.sec.gov/Archives/edgar/data/100517/000010051726000135/ual_erx06302026xex991.htm
+  - company: UAL
+    metric: variable_debt_share
+    period_end: 2026-06-30
+    reason: The July 15, 2026 release does not state a fixed or variable share of debt.
+    source_url: https://www.sec.gov/Archives/edgar/data/100517/000010051726000135/ual_erx06302026xex991.htm
+  - company: AAL
+    metric: revenue_adjusted
+    period_end: 2026-06-30
+    reason: The July 23, 2026 release states total operating revenues of 16,735 and reconciles special items on income, not a separate adjusted revenue.
+    source_url: https://www.sec.gov/Archives/edgar/data/6201/000000620126000051/a8kerexhibit991q2-26.htm
+  - company: AAL
+    metric: fuel_price_per_gal
+    basis: ADJUSTED
+    period_end: 2026-06-30
+    reason: The release states one average aircraft fuel price including related taxes, 4.05, and no adjusted fuel price.
+    source_url: https://www.sec.gov/Archives/edgar/data/6201/000000620126000051/a8kerexhibit991q2-26.htm
+  - company: AAL
+    metric: adjusted_net_debt
+    period_end: 2026-06-30
+    reason: The July 23, 2026 release does not state adjusted net debt.
+    source_url: https://www.sec.gov/Archives/edgar/data/6201/000000620126000051/a8kerexhibit991q2-26.htm
+  - company: AAL
+    metric: variable_debt_share
+    period_end: 2026-06-30
+    reason: The July 23, 2026 release does not state a fixed or variable share of debt.
+    source_url: https://www.sec.gov/Archives/edgar/data/6201/000000620126000051/a8kerexhibit991q2-26.htm

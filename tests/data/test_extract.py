@@ -54,6 +54,37 @@ Adjusted net debt $ 13,591
 Total operating revenue 19,757
 Operating revenue, adjusted $ 17,666
 78 percent fixed rate debt and 22 percent variable rate debt
+Operating income 1,096
+Interest expense, net of capitalized interest and interest income 135
+Fuel gallons consumed (millions) 1,219
+Average aircraft fuel price per gallon $ 4.19
+Debt, finance lease obligations and other financial liabilities $ 26,464
+Current maturities of long-term debt, finance leases, and other financial liabilities 2,170
+Long-term debt, finance leases, and other financial liabilities 24,294
+Ending available liquidity of $19.6 billion
+19,600
+Adjusted net debt (Non-GAAP) $ 18,105
+Total operating revenue 17,672
+Total assets $ 84,569
+Total current liabilities 27,764
+Total noncurrent liabilities 40,108
+67,872
+Total stockholders' equity 16,697
+Operating income 446
+Interest expense, net (409)
+Fuel consumption (gallons in millions) 1,204
+Average aircraft fuel price including related taxes 4.05
+Current maturities of long-term debt and finance leases $ 3,094
+Long-term debt and finance leases, net of current maturities 25,833
+28,927
+total available liquidity $11.3 billion
+11,300
+Total operating revenues 16,735
+Total assets $ 64,233
+Total current liabilities 26,756
+Total noncurrent liabilities 41,449
+68,205
+Total stockholders' deficit (3,972)
 """
 
 
@@ -159,6 +190,49 @@ def test_schema_failure_falls_back_to_overrides():
     facts = extract_facts("DAL", "no filing", _REF, llm=llm)
     assert facts
     assert all(fact.extraction == Extraction.OVERRIDE for fact in facts)
+
+
+def test_july_10_returns_the_june_quarter():
+    repo = Repository(":memory:")
+    repo.migrate()
+    repo.upsert_facts(load_overrides())
+    facts, flags = repo.latest_facts("DAL", datetime(2026, 7, 10, tzinfo=timezone.utc))
+    assert flags == []
+    income = _by_metric(facts, Metric.OPERATING_INCOME)
+    assert income.value == 1864
+    assert income.period_end == date(2026, 6, 30)
+    assert _by_metric(facts, Metric.NET_INTEREST_EXPENSE).value == 144
+    assert _by_metric(facts, Metric.FUEL_GALLONS_M).value == 1122
+    assert _by_metric(facts, Metric.DEBT_TOTAL).value == 13952
+    assert _by_metric(facts, Metric.VARIABLE_DEBT_SHARE).value == 0.22
+    assert all(fact.period_end < date(2026, 9, 30) for fact in facts)
+
+
+def test_peer_metrics_are_present_or_explained():
+    import yaml
+    from pathlib import Path
+
+    raw = yaml.safe_load(Path("overrides.yaml").read_text())
+    required = {
+        "operating_income", "net_interest_expense", "fuel_gallons_m", "fuel_price_per_gal",
+        "debt_total", "debt_current", "liquidity", "adjusted_net_debt",
+        "revenue_gaap", "revenue_adjusted", "total_assets", "total_liabilities",
+        "equity", "variable_debt_share",
+    }
+    for company in ("UAL", "AAL"):
+        present = {row["metric"] for row in raw["facts"] if row["company"] == company}
+        missing = [row for row in raw["missing"] if row["company"] == company]
+        unexplained = required - present - {row["metric"] for row in missing}
+        assert not unexplained
+        for row in missing:
+            assert row["reason"]
+            assert row["source_url"].startswith("https://www.sec.gov/")
+    facts = [fact for fact in load_overrides() if fact.company in {"UAL", "AAL"}]
+    by_company = {}
+    for fact in facts:
+        if fact.metric == Metric.OPERATING_INCOME:
+            by_company[fact.company] = fact.value
+    assert by_company == {"UAL": 1096, "AAL": 446}
 
 
 def test_three_argument_call_returns_overrides():

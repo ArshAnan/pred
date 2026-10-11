@@ -313,7 +313,11 @@ def _appears(value: float, evidence: str) -> bool:
 def _forms(value: float) -> list[str]:
     forms: list[str] = []
     if abs(value) >= 1 and abs(value - round(value)) < 1e-6:
-        forms.append(str(int(round(value))))
+        whole = int(round(value))
+        forms.append(str(whole))
+        if whole < 0:
+            # Parentheses in a filing, "(3,972)", are a negative amount.
+            forms.append(str(abs(whole)))
     else:
         forms.append(f"{value:.2f}")
         trimmed = f"{value:.10f}".rstrip("0").rstrip(".")
