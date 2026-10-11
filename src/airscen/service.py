@@ -7,18 +7,22 @@ constructor arguments so tests can pass fakes; this module never opens the datab
 
 from __future__ import annotations
 
+import logging
 import statistics
+import threading
 import uuid
 from collections.abc import Callable
 from datetime import date, datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Optional
 
 from airscen import factors, scenario, trust
 from airscen.brief import template_brief
 from airscen.types import (
-    Basis, Brief, DataError, Fact, Factor, MarketMeta, MarketView, Metric, RequestError, RunRequest, RunResult,
-    RunSummary, ScenarioInputs, Snapshot, TrustResult, Venue,
+    AirScenError, Basis, Brief, DataError, Fact, Factor, MarketMeta, MarketView, Metric, RequestError, RunRequest,
+    RunResult, RunSummary, ScenarioInputs, Snapshot, SourceError, TrustResult, Venue,
 )
+
+log = logging.getLogger("airscen.service")
 
 REQUIRED = (
     Metric.OPERATING_INCOME, Metric.NET_INTEREST_EXPENSE, Metric.FUEL_GALLONS_M,
@@ -194,6 +198,81 @@ class RunService:
             quote = factors.FactorQuote(meta=meta, label=label, snapshot=snap, trust=score)
             (rates if label.factor == Factor.RATES else fuel).append(quote)
         return rates, fuel
+
+
+SOURCE_GROUPS = ("markets", "filings", "macro")
+BACKFILL = "backfill"
+
+# A job runner does the actual work for one source group (lane A's worker ticks and backfill):
+# runner(tickers or None, (start, end) window or None). It raises an AirScenError on failure.
+JobRunner = Callable[[Optional[list[str]], Optional[tuple[date, date]]], None]
+
+
+class IngestJobs:
+    """Background ingest jobs for POST /admin/ingest (LLD section 7, server rule 4).
+
+    One job per source group at a time; a group already running is a 409. State is in memory:
+    one API process (DD-2), and a restart forgets finished jobs, which is fine for admin status.
+    """
+
+    def __init__(self, runners: dict[str, JobRunner], clock: Callable[[], datetime]):
+        self.runners = runners
+        self.clock = clock
+        self._lock = threading.Lock()
+        self._jobs: dict[str, dict[str, Any]] = {}
+        self._running: dict[str, str] = {}  # source group -> job_id
+
+    def start(self, sources: list[str], tickers: list[str] | None, window: tuple[date, date] | None) -> str:
+        groups = [BACKFILL] if window else list(sources)
+        for g in groups:
+            if g not in self.runners:
+                raise SourceError(f"No ingest job is wired for '{g}' yet", code="E_SOURCE_UNAVAILABLE",
+                                  details={"source": g})
+        with self._lock:
+            for g in groups:
+                if g in self._running:
+                    raise RequestError(f"An ingest job for {g} is already running", code="E_CONFLICT",
+                                       details={"job_id": self._running[g], "source": g})
+            job_id = f"job_{uuid.uuid4().hex[:10]}"
+            self._jobs[job_id] = {
+                "job_id": job_id, "status": "queued", "sources": groups, "tickers": tickers,
+                "window": f"{window[0]}..{window[1]}" if window else None,
+                "progress": {"done": 0, "total": len(groups)}, "errors": [],
+                "started_at": self.clock(), "finished_at": None,
+            }
+            for g in groups:
+                self._running[g] = job_id
+        threading.Thread(target=self._run, args=(job_id, groups, tickers, window), daemon=True).start()
+        return job_id
+
+    def get(self, job_id: str) -> dict[str, Any]:
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if job is None:
+                raise RequestError(f"Unknown job {job_id}", code="E_NOT_FOUND", details={"job_id": job_id})
+            return {**job, "progress": dict(job["progress"]), "errors": list(job["errors"])}
+
+    def _run(self, job_id: str, groups: list[str], tickers, window) -> None:
+        job = self._jobs[job_id]
+        job["status"] = "running"
+        try:
+            for g in groups:
+                try:
+                    self.runners[g](tickers, window)
+                except AirScenError as e:
+                    job["errors"].append({"source": g, "code": e.code, "message": e.message})
+                except Exception:
+                    log.exception("ingest job %s: %s failed", job_id, g)
+                    job["errors"].append({"source": g, "code": "E_INTERNAL",
+                                          "message": "Unexpected error; see the API log"})
+                job["progress"]["done"] += 1
+        finally:
+            failed = {e["source"] for e in job["errors"]}
+            job["status"] = "succeeded" if not failed else "failed" if failed >= set(groups) else "partial"
+            job["finished_at"] = self.clock()
+            with self._lock:
+                for g in groups:
+                    self._running.pop(g, None)
 
 
 def _quarter(period_end: date) -> tuple[date, date]:

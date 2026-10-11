@@ -10,8 +10,8 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
-WORKING = ["setup", "api", "ui", "test"]
-PLACEHOLDERS = ["ingest", "backfill", "warm", "eval"]
+WORKING = ["setup", "api", "ui", "test", "ingest", "backfill"]
+PLACEHOLDERS = ["warm", "eval"]
 
 pytestmark = pytest.mark.skipif(shutil.which("make") is None, reason="make not installed")
 
@@ -59,6 +59,20 @@ def test_setup_installs_dev_extra_so_pytest_is_available(tmp_path):
     proc = subprocess.run(["make", "-n", "setup"], cwd=tmp_path, capture_output=True, text=True, timeout=30)
     assert proc.returncode == 0, proc.stderr
     assert 'pip install -e ".[dev]"' in proc.stdout
+
+
+def test_ingest_target_runs_the_cli():
+    assert "-m airscen.cli ingest" in dry_run("ingest")
+
+
+def test_backfill_target_passes_the_window_to_the_cli():
+    assert "-m airscen.cli backfill --window 2026-07-01..2026-07-12" in dry_run("backfill", "WINDOW=2026-07-01..2026-07-12")
+
+
+def test_backfill_without_window_fails_with_usage():
+    proc = make("backfill")
+    assert proc.returncode != 0
+    assert "WINDOW=" in proc.stdout + proc.stderr
 
 
 @pytest.mark.parametrize("target", PLACEHOLDERS)

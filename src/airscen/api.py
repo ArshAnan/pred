@@ -13,11 +13,12 @@ import time
 import uuid
 from collections.abc import Callable
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, FastAPI, Header, Query, Request, Response
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -49,11 +50,16 @@ def _default_repo(settings: Any) -> Any:
     return store.Repository(DB_PATH)
 
 
+def _no_job_runners(settings: Any, repo: Any) -> dict[str, service.JobRunner]:
+    return {}  # C8 wires lane A's WorkerLoop ticks and backfill here
+
+
 def create_app(
     settings_loader: Callable[[], Any] = config.load_settings,
     repo_factory: Callable[[Any], Any] = _default_repo,
     clock: Callable[[], datetime] | None = None,
     monotonic: Callable[[], float] = time.monotonic,
+    job_runners: Callable[[Any, Any], dict[str, service.JobRunner]] = _no_job_runners,
 ) -> FastAPI:
     """Build the app. Tests pass fakes and clocks; the real app uses lane A's loader and Repository."""
     now = clock or (lambda: datetime.now(timezone.utc))
@@ -69,6 +75,7 @@ def create_app(
             app.state.service = service.RunService(repo=repo, settings=app.state.settings, clock=now)
         except StoreError as e:
             _log("error", "db_unavailable", error_code=e.code, message=e.message)
+        app.state.jobs = service.IngestJobs(job_runners(app.state.settings, app.state.repo), clock=now)
         yield
 
     app = FastAPI(title="AirScen API", version="1", lifespan=lifespan)
@@ -155,7 +162,69 @@ def _router() -> APIRouter:
             raise RequestError("from must not be after to", details={"from": start.isoformat(), "to": end.isoformat()})
         return _service(request).history(venue, market_id, start, end, as_of)
 
+    @router.post("/admin/ingest", status_code=202)
+    def ingest(request: Request, req: IngestRequest) -> dict[str, str]:
+        known = {c.ticker for c in request.app.state.settings.companies}
+        if req.tickers and (unknown := sorted(set(req.tickers) - known)):
+            raise RequestError(f"Unknown tickers: {', '.join(unknown)}", details={"fields": [{"loc": ["body", "tickers"]}]})
+        return {"job_id": request.app.state.jobs.start(req.sources, req.tickers, req.window_dates())}
+
+    @router.get("/admin/jobs/{job_id}", response_model=JobStatus)
+    def job_status(request: Request, job_id: str) -> JobStatus:
+        return JobStatus(**request.app.state.jobs.get(job_id))
+
     return router
+
+
+class IngestRequest(BaseModel):
+    """Body of POST /admin/ingest (LLD section 7: {sources, tickers, window}). A window makes it a backfill."""
+
+    model_config = ConfigDict(extra="forbid")
+    sources: list[Literal["markets", "filings", "macro"]] = Field(
+        default_factory=lambda: list(service.SOURCE_GROUPS), min_length=1)
+    tickers: Optional[list[str]] = None
+    window: Optional[str] = Field(None, description="YYYY-MM-DD..YYYY-MM-DD, inclusive")
+
+    @field_validator("sources")
+    @classmethod
+    def _unique(cls, v):
+        if len(set(v)) != len(v):
+            raise ValueError("sources must not repeat")
+        return v
+
+    @field_validator("window")
+    @classmethod
+    def _window(cls, v):
+        if v is not None:
+            _parse_window(v)
+        return v
+
+    def window_dates(self) -> Optional[tuple[date, date]]:
+        return _parse_window(self.window) if self.window else None
+
+
+def _parse_window(v: str) -> tuple[date, date]:
+    try:
+        start, end = (date.fromisoformat(p) for p in v.split(".."))
+    except ValueError:
+        raise ValueError("window must look like 2026-07-01..2026-07-12") from None
+    if start > end:
+        raise ValueError("window start must not be after its end")
+    return start, end
+
+
+class JobStatus(BaseModel):
+    """Body of GET /admin/jobs/{job_id} (LLD section 7: {status, progress, errors} plus what was asked)."""
+
+    job_id: str
+    status: Literal["queued", "running", "succeeded", "partial", "failed"]
+    sources: list[str]
+    tickers: Optional[list[str]] = None
+    window: Optional[str] = None
+    progress: dict[str, int]
+    errors: list[dict[str, str]]
+    started_at: datetime
+    finished_at: Optional[datetime] = None
 
 
 def _service(request: Request) -> "service.RunService":

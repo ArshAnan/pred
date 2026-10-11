@@ -31,8 +31,8 @@ help:
 	@echo   api       start the API server on $(API_HOST):$(API_PORT), one worker
 	@echo   ui        start Streamlit on $(UI_HOST):$(UI_PORT)
 	@echo   test      run pytest, extra flags via PYTEST_ARGS=...
-	@echo   ingest    placeholder until C7
-	@echo   backfill  placeholder until C7, usage: make backfill WINDOW=2026-07-01..2026-07-12
+	@echo   ingest    fetch markets, filings and macro through the API, needs make api running
+	@echo   backfill  backfill quotes for a replay window, usage: make backfill WINDOW=2026-07-01..2026-07-12
 	@echo   warm      placeholder until C14
 	@echo   eval      placeholder until C14
 
@@ -52,13 +52,14 @@ ui:
 test:
 	$(PY) -m pytest $(PYTEST_ARGS)
 
-# Placeholders: fail loudly so nobody mistakes them for a working step.
+# Both need `make api` running; they start a job through POST /admin/ingest and wait for it.
 ingest:
-	$(error make ingest: not implemented yet - wired to POST /admin/ingest in C7)
+	$(PY) -m airscen.cli ingest
 
 backfill:
-	$(error make backfill: not implemented yet - wired to POST /admin/ingest in C7)
+	$(if $(WINDOW),$(PY) -m airscen.cli backfill --window $(WINDOW),$(error usage: make backfill WINDOW=2026-07-01..2026-07-12))
 
+# Placeholders: fail loudly so nobody mistakes them for a working step.
 warm:
 	$(error make warm: not implemented yet - wired in C14)
 
