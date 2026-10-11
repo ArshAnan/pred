@@ -95,6 +95,7 @@ class AlertEngine:
             if self._step(key, move_pp >= cfg.driver_move_pp, move_pp < cfg.driver_move_pp, now):
                 alerts.append(self._alert("DRIVER_MOVE", company, key, run, {
                     "market_id": meta.market_id, "venue": meta.venue.value, "title": meta.title,
+                    "factor": q.label.factor.value if q.label.factor else None, "mechanism": q.label.mechanism,
                     "before": mids[0], "after": mids[-1], "move_pp": round(move_pp, 2),
                     "window_min": cfg.window_min, "query": meta.title,
                 }, ts=now))
@@ -176,12 +177,16 @@ class AlertEngine:
                ts: datetime | None = None, with_headlines: bool = True) -> Alert:
         ts = ts or self.clock()
         query = payload.pop("query", company)
-        payload = {"rule": rule, "company": company,
-                   "as_of": (run.as_of if run else ts).isoformat(), "run_id": run.run_id if run else None, **payload,
+        payload = {"rule": rule, "company": company, "company_name": self._name(company),
+                   "as_of": (run.as_of if run else ts).isoformat(), "run_id": run.run_id if run else None,
+                   "decision": _decision(run), **payload,
                    "headlines": self._headlines(query, ts) if with_headlines else []}
         return Alert(alert_id=f"alert_{uuid.uuid4().hex[:12]}", ts=ts, company=company,
                      run_id=run.run_id if run else None, rule=rule, dedup_key=key,
                      severity=SEVERITY[rule], payload=payload, status="pending")
+
+    def _name(self, company: str) -> str:
+        return next((c.name for c in self.settings.companies if c.ticker == company), company)
 
     def _headlines(self, query: str, before: datetime) -> list:
         if self.headlines is None:
@@ -201,20 +206,58 @@ class AlertEngine:
             return []
 
 
+def _decision(run: RunResult | None) -> dict | None:
+    """The question an alert is about, so the message can say it in plain words."""
+    if run is None:
+        return None
+    return {"note_size_usd_m": run.inputs.note_size_usd_m, "tenor_years": run.inputs.tenor_years,
+            "coverage_threshold": run.inputs.coverage_threshold, "p_breach": run.summary.p_breach,
+            "breakeven_wti_hold": run.summary.breakeven_wti_hold}
+
+
 def format_alert(a: Alert) -> str:
+    """Slack text for a treasury or credit reader: what changed, why it matters, what to do.
+
+    Short on purpose. The rule code and run id stay in the footer so the alert can be traced.
+    """
     p = a.payload
+    name = p.get("company_name") or a.company
+    d = p.get("decision") or {}
+    theta = f"{d['coverage_threshold']:.1f}x" if d.get("coverage_threshold") is not None else "the threshold"
     if a.rule == "BREACH_FLIP":
-        body = (f"breach probability {_pct(p['before'])} -> {_pct(p['after'])} "
-                f"(threshold {_pct(p['threshold'])})")
+        lines = [
+            f"*{name}: the planned ${d.get('note_size_usd_m', 0):,.0f}M {d.get('tenor_years', '?')}-year note "
+            f"just got riskier to service.*",
+            f"Chance that interest coverage drops below {theta}: *{_pct(p['after'])}* (was {_pct(p['before'])}).",
+        ]
+        if d.get("breakeven_wti_hold") is not None:
+            lines.append(f"Why: the oil and Fed markets behind this moved. Coverage falls below {theta} "
+                         f"if WTI rises above ${d['breakeven_wti_hold']:,.0f} a barrel.")
+        lines.append("What to do: re-check the issue size and terms before committing.")
     elif a.rule == "DRIVER_MOVE":
-        body = f"{p['title']} moved {p['move_pp']} points in {p['window_min']} min ({p['before']:.2f} -> {p['after']:.2f})"
+        lines = [
+            f"*{name}: a market behind the note decision moved fast.*",
+            f"{p['title']} went from {_pct(p['before'], 0)} to {_pct(p['after'], 0)} in the last {p['window_min']} min."
+            + (f" {p['mechanism'].rstrip('.')}." if p.get("mechanism") else ""),
+            f"Chance that coverage drops below {theta} is now {_pct(d.get('p_breach'))}.",
+        ]
     else:
-        body = f"source {p['source']} is {p['status']} (last ok {p['last_ok_at'] or 'never'})"
-    lines = [f"*{a.rule}* ({a.severity}) {a.company}: {body}", f"as of {p['as_of']}, run {p.get('run_id') or '-'}"]
+        lines = [
+            f"*Data check: {p['source']} has been unavailable since {_when(p.get('last_ok_at'))}.*",
+            "Answers may rest on older quotes and will say so (STALE_MARKETS). No action needed unless it continues.",
+        ]
     lines += [f"• {h}" for h in p.get("headlines", [])]
-    lines.append("Conditional on market-implied odds; not a forecast or trading signal.")
+    lines.append(f"_{_when(p['as_of'])} · {a.rule} · run {p.get('run_id') or '-'} · "
+                 "based on prediction-market odds; not a forecast or investment advice._")
     return "\n".join(lines)
 
 
-def _pct(v: float | None) -> str:
-    return "n/a" if v is None else f"{v * 100:.1f}%"
+def _when(iso: str | None) -> str:
+    if not iso:
+        return "an unknown time"
+    t = datetime.fromisoformat(iso.replace("Z", "+00:00")).astimezone(timezone.utc)
+    return f"{t:%b} {t.day}, {t:%H:%M} UTC"
+
+
+def _pct(v: float | None, digits: int = 1) -> str:
+    return "n/a" if v is None else f"{v * 100:.{digits}f}%"

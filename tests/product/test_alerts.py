@@ -75,7 +75,7 @@ def test_breach_flip_fires_when_p_breach_rises_to_the_threshold(store, slack, ba
     assert alert.payload["before"] == 0.15 and alert.payload["after"] == 0.24
     assert eng.state(KEY) == "COOLDOWN"
     assert store.saved_alerts[alert.alert_id].status == "sent"
-    assert "BREACH_FLIP" in slack.texts[0] and "DAL" in slack.texts[0]
+    assert "BREACH_FLIP" in slack.texts[0] and "Delta Air Lines" in slack.texts[0]
 
 
 @pytest.mark.parametrize("prev_p,p", [(0.25, 0.26), (None, 0.30), (0.15, 0.19), (0.15, None)])
@@ -206,6 +206,43 @@ def test_a_short_outage_is_not_stale_yet(store, slack, base_run):
     sources = {"kalshi": SourceStatus(status="degraded", last_ok_at=AS_OF - timedelta(minutes=10))}
     eng = engine(store, slack, status_fn=lambda: (sources, WorkerStatus()))
     assert eng.data_stale("DAL", base_run, AS_OF) == []
+
+
+# ---- plain-language messages (for a treasury or credit reader, not a trader) ----
+
+def test_breach_flip_message_says_what_changed_why_and_what_to_do(store, slack, base_run):
+    eng = engine(store, slack)
+    step(eng, base_run, 0.074, 0.297)
+    text = slack.texts[0]
+    assert text.splitlines()[0] == "*Delta Air Lines: the planned $1,000M 7-year note just got riskier to service.*"
+    assert "Chance that interest coverage drops below 6.0x: *29.7%* (was 7.4%)" in text
+    assert "if WTI rises above $103 a barrel" in text           # the breakeven, in plain words
+    assert "re-check the issue size and terms" in text
+    assert "not a forecast or investment advice" in text
+    assert "Oct 9, 14:30 UTC" in text and "BREACH_FLIP" in text  # time and rule kept for traceability
+    assert "threshold 20.0%" not in text                       # the alert level is not the coverage threshold
+    assert len(text.splitlines()) <= 6
+
+
+def test_driver_move_message_names_the_market_and_its_effect(store, slack, base_run):
+    move_market(store, "WTI-ILLUSTRATIVE-90", [0.62, 0.66, 0.74])
+    eng = engine(store, slack)
+    [a] = eng.driver_moves("DAL", base_run, AS_OF)
+    eng.deliver(a)
+    text = slack.texts[0]
+    assert text.splitlines()[0] == "*Delta Air Lines: a market behind the note decision moved fast.*"
+    assert "WTI-ILLUSTRATIVE-90 went from 62% to 74% in the last 60 min." in text
+    assert "illustrative test market" in text                  # the label's mechanism: why it matters
+    assert "now 29.7%" in text and "DRIVER_MOVE" in text
+
+
+def test_data_stale_message_is_short_and_calm(store, slack, base_run):
+    sources = {"kalshi": SourceStatus(status="down", last_ok_at=AS_OF - timedelta(minutes=20))}
+    eng = engine(store, slack, status_fn=lambda: (sources, WorkerStatus()))
+    eng.deliver(eng.data_stale("DAL", base_run, AS_OF)[0])
+    text = slack.texts[0]
+    assert text.splitlines()[0] == "*Data check: kalshi has been unavailable since Oct 9, 14:10 UTC.*"
+    assert "older quotes" in text and "STALE_MARKETS" in text
 
 
 # ---- tick: the worker's after_market_tick ----
