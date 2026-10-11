@@ -1,0 +1,24 @@
+[
+  {
+    "question": "Will annual inflation be 3.6% or less in June?",
+    "conditionId": "0x99231ff429ed86c5cb642c8db64892e3cb76037c35773b8deda90dc874abc0ed",
+    "id": "2491371",
+    "outcomePrices": "[\"1\", \"0\"]",
+    "outcomes": "[\"Yes\", \"No\"]",
+    "closed": true,
+    "endDate": "2026-07-15T03:59:00Z",
+    "umaResolutionStatus": "resolved",
+    "clobTokenIds": "[\"56733976729413501947775603757789410385722387108278167461881627444516802341588\", \"16480988272430413352339038420715951939117049653005880996028636298351235147419\"]"
+  },
+  {
+    "question": "Will annual inflation be 3.7% in June?",
+    "conditionId": "0xe739392dfe9dace7aa1f8cdca0164c19bead0d4a67f41fb9389a5a9f97b6ee45",
+    "id": "2491372",
+    "outcomePrices": "[\"0\", \"1\"]",
+    "outcomes": "[\"Yes\", \"No\"]",
+    "closed": true,
+    "endDate": "2026-07-15T03:59:00Z",
+    "umaResolutionStatus": "resolved",
+    "clobTokenIds": "[\"9818209784823773553114743306285934387853828100423413266391057512388012984814\", \"79109429694999261828493880338956617370718699671945765361531395370004989930382\"]"
+  }
+]
