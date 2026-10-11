@@ -9,6 +9,7 @@ Return shapes mirror arnav-lane-A's store.py (A2/A3):
   macro_series(series_id, start, end, as_of)    -> list[MacroObs]
   data_version(as_of)                           -> str
   save_run(run), get_run(run_id) -> RunResult | None, update_run_brief(run_id, md, status)
+  save_alert(a) (upsert by alert_id), alerts(company, since) -> list[Alert], oldest first
   runs(ticker=None, limit=50) -> list[RunResult], newest first. NOT in lane A's store yet: GET /runs
       needs it; lane A to add it (the runs table already has company and created_at).
 
@@ -40,6 +41,7 @@ class FakeStore:
         self.snapshots: list[Snapshot] = []
         self.macro: list[MacroObs] = []
         self.saved: dict[str, RunResult] = {}
+        self.saved_alerts: dict = {}
 
     def migrate(self):
         pass  # nothing to create in memory
@@ -89,6 +91,13 @@ class FakeStore:
         run = self.saved[run_id]
         self.saved[run_id] = run.model_copy(update={"brief": run.brief.model_copy(
             update={"llm_md": md, "llm_status": status})})
+
+    def save_alert(self, a):
+        self.saved_alerts[a.alert_id] = a  # upsert, like lane A's store
+
+    def alerts(self, company, since):
+        rows = [a for a in self.saved_alerts.values() if a.company == company and a.ts >= since]
+        return sorted(rows, key=lambda a: (a.ts, a.alert_id))
 
     def runs(self, ticker=None, limit=50):
         rows = [r for r in self.saved.values() if ticker is None or r.company == ticker]

@@ -158,6 +158,11 @@ class RunService:
                                details={"venue": venue.value, "market_id": market_id})
         return self.repo.snapshot_series(venue, market_id, start, end, as_of)
 
+    def driver_quotes(self, as_of: datetime) -> list[factors.FactorQuote]:
+        """The trusted rate and fuel markets that would feed a run at as_of (used by DRIVER_MOVE)."""
+        rates, fuel = self._factor_quotes(as_of, [])
+        return rates + fuel
+
     def _check_ticker(self, ticker: str) -> None:
         if ticker not in {c.ticker for c in self.settings.companies}:
             raise RequestError(f"Unknown ticker {ticker}", code="E_NOT_FOUND", details={"ticker": ticker})
