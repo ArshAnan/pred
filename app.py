@@ -184,12 +184,70 @@ def show_result(result: RunResult) -> None:
     st.markdown(b.llm_md if b.llm_status == "ready" and b.llm_md else b.template_md)
 
 
-def main() -> None:
-    st.set_page_config(page_title="AirScen Run", layout="wide")
+def last_run() -> RunResult | None:
+    """The run in this session (GET /runs/{id}; never cached), or None."""
+    if not st.session_state.get("run_id"):
+        return None
+    try:
+        return RunResult.model_validate(client().get(f"/runs/{st.session_state['run_id']}"))
+    except ApiError as e:
+        error_banner(e)
+        return None
+
+
+def period_end(ticker: str, as_of: datetime) -> str:
+    """The company's latest operating-income period at as_of, from GET /companies/{ticker}/facts."""
+    try:
+        facts = client().get(f"/companies/{ticker}/facts", {"as_of": as_of.isoformat().replace("+00:00", "Z")})
+    except ApiError:
+        return "-"
+    ends = [f["period_end"] for f in facts if f["metric"] == "operating_income"]
+    return max(ends) if ends else "-"
+
+
+def peer_rows(result: RunResult, configured: list[str]) -> list[dict[str, str]]:
+    def row(ticker: str, period: str, s, flags: list[str]) -> dict[str, str]:
+        return {
+            "Company": ticker, "Period end": period, "Breach probability": pct(s.p_breach),
+            "Breakeven WTI, hold / hike": f"{num(s.breakeven_wti_hold)} / {num(s.breakeven_wti_hike)}",
+            "Coverage P50 / P90": f"{times(s.coverage_p50)} / {times(s.coverage_p90)}",
+            "Liquidity cover": times(s.liquidity_cover), "Flags": ", ".join(flags) or "-",
+        }
+
+    as_of = result.as_of.astimezone(timezone.utc)
+    rows = [row(result.company, period_end(result.company, as_of), result.summary,
+                [f for f in result.flags if f not in ("CRUDE_ONLY", "RESOLVE_DATE_PROXY")])]
+    by_ticker = {p.ticker: p for p in result.peers}
+    for ticker in configured:
+        if ticker in by_ticker:
+            p = by_ticker[ticker]
+            rows.append(row(ticker, p.period_end.isoformat(), p.summary, p.flags))
+        else:
+            rows.append({"Company": ticker, "Period end": "-", "Breach probability": NA,
+                         "Breakeven WTI, hold / hike": NA, "Coverage P50 / P90": NA, "Liquidity cover": NA,
+                         "Flags": "no result (missing inputs, or peers not requested)"})
+    return rows
+
+
+def peers_page() -> None:
+    st.title("Peers")
+    st.caption("Same question, fuel curve and Fed odds; each airline's own financials and baseline WTI. "
+               "Margins wait for lane B's margin helper.")
+    result = last_run()
+    if result is None:
+        st.info("Run a question first on the Run page; its peers appear here.")
+        return
+    try:
+        configured = next((c["peers"] for c in companies() if c["ticker"] == result.company), [])
+    except ApiError:
+        configured = [p.ticker for p in result.peers]
+    st.info(f"As of {result.as_of.astimezone(timezone.utc):%Y-%m-%d %H:%M} UTC · run {result.run_id}")
+    st.dataframe(peer_rows(result, configured), hide_index=True, use_container_width=True)
+
+
+def run_page() -> None:
     st.title("Market-implied scenario run")
     st.caption("A conditional answer given market-implied odds and stated assumptions. Not a forecast or trading signal.")
-    health_banner()
-
     body = run_form()
     result = submit(body) if body else None
     if result is not None:
@@ -201,6 +259,16 @@ def main() -> None:
             error_banner(e)
     if result is not None:
         show_result(result)
+
+
+PAGES = {"Run": run_page, "Peers": peers_page}
+
+
+def main() -> None:
+    st.set_page_config(page_title="AirScen", layout="wide")
+    page = st.sidebar.radio("Page", list(PAGES))
+    health_banner()
+    PAGES[page]()
 
 
 if __name__ == "__main__":

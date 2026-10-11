@@ -147,6 +147,61 @@ def test_page_shows_the_template_when_the_llm_brief_takes_too_long(api, monkeypa
     assert any("still being written" in c.value for c in at.caption)
 
 
+# ---- Peers page (C10) ----
+
+def with_peers(run: dict, *peers: tuple[str, str, list[str]]) -> dict:
+    """SYNTHETIC peer rows for the page test: Delta's summary under another ticker."""
+    return run | {"peers": [{"ticker": t, "period_end": p, "summary": run["summary"], "flags": f} for t, p, f in peers]}
+
+
+def open_page(at: AppTest, name: str) -> AppTest:
+    at.sidebar.radio[0].set_value(name).run()
+    assert not at.exception, at.exception
+    return at
+
+
+def test_peers_page_shows_the_three_airline_table_with_flags(api):
+    companies = COMPANIES + [{"ticker": "UAL", "cik": None, "name": "United Airlines Holdings", "peers": ["DAL", "AAL"]},
+                             {"ticker": "AAL", "cik": None, "name": "American Airlines Group", "peers": ["DAL", "UAL"]}]
+    api.get("/companies").respond(200, json=companies)
+    run = with_peers(run_json({"ticker": "DAL", "note_size_usd_m": 1000, "tenor_years": 7, "coupon_spread_bp": 150}),
+                     ("UAL", "2026-09-30", []), ("AAL", "2026-06-30", ["PERIOD_MISMATCH"]))
+    api.get(f"/runs/{run['run_id']}").respond(200, json=run)
+    facts = api.get("/companies/DAL/facts").respond(200, json=[
+        {"company": "DAL", "metric": "operating_income", "value": 1454, "unit": "usd_m", "basis": "GAAP",
+         "period_end": "2026-09-30", "filed_at": "2026-10-09T12:00:00Z", "source_url": "https://www.sec.gov/x",
+         "extraction": "override", "validated": True}])
+    at = start()
+    at.session_state["run_id"] = run["run_id"]
+    open_page(at, "Peers")
+    table = at.dataframe[0].value
+    assert list(table["Company"]) == ["DAL", "UAL", "AAL"]
+    assert list(table["Breach probability"]) == ["29.7%", "29.7%", "29.7%"]
+    assert list(table["Period end"]) == ["2026-09-30", "2026-09-30", "2026-06-30"]
+    assert "PERIOD_MISMATCH" in list(table["Flags"])[2]
+    assert facts.calls.last.request.url.params["as_of"] == "2026-10-09T14:30:00Z"  # the run's own as_of
+
+
+def test_peers_page_marks_configured_peers_without_a_result(api):
+    api.get("/companies").respond(200, json=COMPANIES + [
+        {"ticker": "UAL", "cik": None, "name": "United Airlines Holdings", "peers": ["DAL", "AAL"]}])
+    run = run_json({"ticker": "DAL", "note_size_usd_m": 1000, "tenor_years": 7, "coupon_spread_bp": 150})
+    api.get(f"/runs/{run['run_id']}").respond(200, json=run)
+    api.get("/companies/DAL/facts").respond(200, json=[])
+    at = start()
+    at.session_state["run_id"] = run["run_id"]
+    open_page(at, "Peers")
+    table = at.dataframe[0].value
+    assert list(table["Company"]) == ["DAL", "UAL", "AAL"]
+    assert list(table["Period end"])[0] == "-"  # no facts visible: shown as unknown, not guessed
+    assert "no result" in list(table["Flags"])[1]
+
+
+def test_peers_page_without_a_run_asks_for_one(api):
+    at = open_page(start(), "Peers")
+    assert any("Run a question first" in i.value for i in at.info)
+
+
 # ---- errors ----
 
 def test_error_banner_shows_code_message_and_missing_facts(api):

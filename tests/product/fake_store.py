@@ -97,8 +97,29 @@ class FakeStore:
 
 # ---- worked example seed ----
 
-def _fact(metric: str, value: float, unit: str, period_end: date, filed_at: datetime) -> Fact:
-    return Fact(company="DAL", metric=metric, value=value, unit=unit, basis="GAAP", period_end=period_end,
+def seed_peer(store: FakeStore, ticker: str, *, period_end: date = date(2026, 9, 30), wti: float = 85.0,
+              skip_metrics: tuple[str, ...] = ()) -> None:
+    """SYNTHETIC peer for tests, not data: a copy of Delta's worked-example facts under another ticker,
+    with its own quarter and its own illustrative baseline WTI for that quarter."""
+    ex = json.loads(FIXTURE.read_text(encoding="utf-8"))
+    f = ex["inputs"]["facts"]
+    filed = datetime.combine(period_end + timedelta(days=9), datetime.min.time(), tzinfo=timezone.utc)
+    rows = [("operating_income", f["operating_income_usd_m"], "usd_m"),
+            ("net_interest_expense", f["net_interest_expense_usd_m"], "usd_m"),
+            ("fuel_gallons_m", f["fuel_gallons_m"], "gallons_m"), ("debt_total", f["debt_total_usd_m"], "usd_m"),
+            ("variable_debt_share", f["variable_debt_share"], "fraction"),
+            ("liquidity", f["liquidity_usd_m"], "usd_m"), ("debt_current", f["debt_current_usd_m"], "usd_m")]
+    store.facts += [_fact(m, v, u, period_end, filed, company=ticker) for m, v, u in rows if m not in skip_metrics]
+    start = date(period_end.year, 3 * ((period_end.month - 1) // 3) + 1, 1)
+    day = start
+    while day <= period_end:
+        if day.weekday() < 5 and not any(o.series_id == "DCOILWTICO" and o.obs_date == day for o in store.macro):
+            store.macro.append(MacroObs(series_id="DCOILWTICO", obs_date=day, value=wti, realtime_start=day + timedelta(days=1)))
+        day += timedelta(days=1)
+
+
+def _fact(metric: str, value: float, unit: str, period_end: date, filed_at: datetime, company: str = "DAL") -> Fact:
+    return Fact(company=company, metric=metric, value=value, unit=unit, basis="GAAP", period_end=period_end,
                 filed_at=filed_at, source_url="https://www.sec.gov/Archives/edgar/data/27904/000002790426000035/"
                 "deltaairlinesannouncessept.htm", extraction="override", validated=True)
 

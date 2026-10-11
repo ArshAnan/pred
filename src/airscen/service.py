@@ -12,13 +12,14 @@ import statistics
 import threading
 import uuid
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Optional
 
 from airscen import factors, scenario, trust
 from airscen.brief import brief_problems, llm_brief, template_brief
 from airscen.types import (
-    AirScenError, Basis, Brief, DataError, Fact, Factor, MarketMeta, MarketView, Metric, RequestError, RunRequest,
+    AirScenError, Basis, Brief, DataError, Fact, Factor, MarketMeta, MarketView, Metric, PeerResult, RequestError, RunRequest,
     RunResult, RunSummary, ScenarioInputs, Snapshot, SourceError, TrustResult, Venue,
 )
 
@@ -54,43 +55,37 @@ class RunService:
         self._check_ticker(req.ticker)
         now = self.clock()
         as_of = req.as_of or now  # one as_of for every read below (DD-4)
-        flags: list[str] = []
 
-        baseline, fact_flags = self._baseline(req.ticker, as_of)
-        flags += sorted(fact_flags)
-        missing = [m.value for m in REQUIRED if m not in baseline]
+        focal = self._company_inputs(req.ticker, as_of)
         dgs10 = self._latest_dgs10(as_of)
-        if dgs10 is None:
-            missing.append(DGS10)
-        wti_ref = self._wti_ref(baseline, as_of, flags)
-        if wti_ref is None:
-            missing.append(WTI)
+        missing = focal.missing_facts + ([DGS10] if dgs10 is None else []) + ([WTI] if focal.wti_ref is None else [])
         if missing:
             raise DataError(
                 f"Required inputs are missing for {req.ticker}: {', '.join(missing)}",
                 code="E_MISSING_FACT", details={"missing": missing},
             )
 
-        v, d = baseline[Metric.VARIABLE_DEBT_SHARE], baseline[Metric.DEBT_TOTAL]
-        if v.period_end < d.period_end:
-            flags.append("VARIABLE_SHARE_STALE")
-
-        rate_quotes, fuel_quotes = self._factor_quotes(as_of, flags)
+        market_flags: list[str] = []
+        rate_quotes, fuel_quotes = self._factor_quotes(as_of, market_flags)
         rates, rate_flags = factors.rate_states(rate_quotes)
         curve, fuel_flags = factors.fuel_curve(fuel_quotes, as_of, self.settings.fuel.horizon_days)
-        flags += rate_flags + fuel_flags + list(ALWAYS_FLAGS)
+        flags = focal.flags + market_flags + rate_flags + fuel_flags + list(ALWAYS_FLAGS)
 
-        rows, summary = scenario.run_scenarios(ScenarioInputs(
-            company=req.ticker, as_of=as_of, note_size_usd_m=req.note_size_usd_m, tenor_years=req.tenor_years,
-            coupon=(dgs10 + req.coupon_spread_bp / 100) / 100,
-            coverage_threshold=req.coverage_threshold, fuel_passthrough=req.fuel_passthrough,
-            baseline=baseline, wti_ref=wti_ref, rates=rates, fuel=curve,
-        ))
+        def scenarios(company: _CompanyInputs):
+            # Peers share the request, fuel curve and rate states; facts and W_bar are their own (LLD section 6).
+            return scenario.run_scenarios(ScenarioInputs(
+                company=company.ticker, as_of=as_of, note_size_usd_m=req.note_size_usd_m,
+                tenor_years=req.tenor_years, coupon=(dgs10 + req.coupon_spread_bp / 100) / 100,
+                coverage_threshold=req.coverage_threshold, fuel_passthrough=req.fuel_passthrough,
+                baseline=company.baseline, wti_ref=company.wti_ref, rates=rates, fuel=curve,
+            ))
+
+        rows, summary = scenarios(focal)
+        peers = self._peers(req, focal, as_of, scenarios) if req.include_peers else []
 
         result = RunResult(
             run_id=f"run_{uuid.uuid4().hex[:12]}", company=req.ticker, as_of=as_of, created_at=now,
-            inputs=req.model_copy(update={"as_of": as_of}), rows=rows, summary=summary,
-            peers=[],  # C10
+            inputs=req.model_copy(update={"as_of": as_of}), rows=rows, summary=summary, peers=peers,
             flags=list(dict.fromkeys(flags)), data_version=self.repo.data_version(as_of),
             brief=Brief(template_md="", llm_md=None, llm_status="pending" if self.llm else "skipped"),
         )
@@ -169,6 +164,35 @@ class RunService:
 
     # ---- inputs ----
 
+    def _company_inputs(self, ticker: str, as_of: datetime) -> "_CompanyInputs":
+        """One company's baseline facts, W_bar and company-level flags at as_of."""
+        baseline, fact_flags = self._baseline(ticker, as_of)
+        flags = sorted(fact_flags)
+        missing = [m.value for m in REQUIRED if m not in baseline]
+        wti_ref = self._wti_ref(baseline, as_of, flags)
+        if not missing:
+            v, d = baseline[Metric.VARIABLE_DEBT_SHARE], baseline[Metric.DEBT_TOTAL]
+            if v.period_end < d.period_end:
+                flags.append("VARIABLE_SHARE_STALE")
+        return _CompanyInputs(ticker, baseline, wti_ref, flags, missing)
+
+    def _peers(self, req: RunRequest, focal: "_CompanyInputs", as_of: datetime, scenarios) -> list[PeerResult]:
+        company = next(c for c in self.settings.companies if c.ticker == req.ticker)
+        focal_period = focal.baseline[Metric.OPERATING_INCOME].period_end
+        peers = []
+        for ticker in company.peers:
+            peer = self._company_inputs(ticker, as_of)
+            if peer.missing_facts or peer.wti_ref is None:
+                # Left out rather than failing the focal run; the Peers page shows it as "no result".
+                log.info("peer %s left out of %s run: missing %s", ticker, req.ticker,
+                         peer.missing_facts + ([WTI] if peer.wti_ref is None else []))
+                continue
+            _, summary = scenarios(peer)
+            period = peer.baseline[Metric.OPERATING_INCOME].period_end
+            flags = peer.flags + (["PERIOD_MISMATCH"] if period != focal_period else [])
+            peers.append(PeerResult(ticker=ticker, period_end=period, summary=summary, flags=list(dict.fromkeys(flags))))
+        return peers
+
     def _baseline(self, company: str, as_of: datetime) -> tuple[dict[Metric, Fact], set[str]]:
         facts, flags = self.repo.latest_facts(company, as_of)
         baseline: dict[Metric, Fact] = {}
@@ -224,6 +248,15 @@ class RunService:
             quote = factors.FactorQuote(meta=meta, label=label, snapshot=snap, trust=score)
             (rates if label.factor == Factor.RATES else fuel).append(quote)
         return rates, fuel
+
+
+@dataclass(frozen=True)
+class _CompanyInputs:
+    ticker: str
+    baseline: dict
+    wti_ref: float | None
+    flags: list[str]
+    missing_facts: list[str]
 
 
 SOURCE_GROUPS = ("markets", "filings", "macro")
