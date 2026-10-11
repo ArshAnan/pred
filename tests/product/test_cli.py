@@ -123,6 +123,48 @@ def test_flip_reports_an_undelivered_alert(api, capsys):
     assert "not delivered" in capsys.readouterr().out
 
 
-def test_eval_is_not_wired_yet(capsys):
-    assert run("eval") == 2
-    assert "C14" in capsys.readouterr().err
+REPLAY_BODY = {"ticker": "DAL", "as_of": "2026-07-10T20:00:00Z", "note_size_usd_m": 1000.0, "tenor_years": 7,
+               "coupon_spread_bp": 150.0, "coverage_threshold": 3.0, "fuel_passthrough": 1.0, "include_peers": True}
+
+
+def run_with(run_id, status):
+    return {"run_id": run_id, "brief": {"template_md": "t", "llm_md": "x" if status == "ready" else None,
+                                        "llm_status": status}}
+
+
+def test_warm_runs_the_replay_question_and_waits_for_its_brief(api, capsys):
+    post = api.post("/runs").respond(201, json=run_with("run_r", "pending"))
+    api.get("/runs/run_r").mock(side_effect=[httpx.Response(200, json=run_with("run_r", "pending")),
+                                             httpx.Response(200, json=run_with("run_r", "ready"))])
+    assert run("warm") == 0
+    assert json.loads(post.calls.last.request.content) == REPLAY_BODY  # exactly what the Replay page sends
+    out = capsys.readouterr().out
+    assert "ready" in out and "LLM_MODE=cache_only" in out
+
+
+def test_warm_also_runs_a_pinned_demo_as_of(api):
+    post = api.post("/runs").respond(201, json=run_with("run_x", "ready"))
+    assert run("warm", "--as-of", "2026-10-11T14:00:00Z") == 0
+    sent = [json.loads(c.request.content)["as_of"] for c in post.calls]
+    assert sent == ["2026-07-10T20:00:00Z", "2026-10-11T14:00:00Z"]
+
+
+@pytest.mark.parametrize("status", ["failed", "rejected", "skipped"])
+def test_warm_exits_1_when_a_brief_did_not_reach_ready(api, capsys, status):
+    api.post("/runs").respond(201, json=run_with("run_r", status))
+    assert run("warm") == 1
+    assert status in capsys.readouterr().out
+
+
+def test_warm_reports_an_api_error(api, capsys):
+    api.post("/runs").respond(422, json={"error": {"code": "E_MISSING_FACT", "message": "missing DGS10",
+                                                   "details": {"missing": ["DGS10"]}, "request_id": "r"}})
+    assert run("warm") == 2
+    assert "E_MISSING_FACT" in capsys.readouterr().err
+
+
+def test_eval_runs_lane_b_module(monkeypatch):
+    calls = []
+    monkeypatch.setattr(cli.runpy, "run_module", lambda name, run_name: calls.append((name, run_name)))
+    assert run("eval") == 0
+    assert calls == [("airscen.eval", "__main__")]

@@ -3,6 +3,8 @@
     python -m airscen.cli ingest [--sources markets,filings,macro] [--tickers DAL,UAL] [--no-wait]
     python -m airscen.cli backfill --window 2026-07-01..2026-07-12 [--tickers DAL] [--no-wait]
     python -m airscen.cli flip [--low 3.0] [--high 6.0]        # demo: force a BREACH_FLIP alert
+    python -m airscen.cli warm [--as-of 2026-10-11T14:00:00Z]  # fill llm_cache for the demo questions
+    python -m airscen.cli eval                                  # lane B's five-check report
 
 Exit codes: 0 the job succeeded (or was started with --no-wait), 1 the job finished with errors,
 2 the API refused the request or could not be reached.
@@ -11,6 +13,7 @@ Exit codes: 0 the job succeeded (or was started with --no-wait), 1 the job finis
 from __future__ import annotations
 
 import argparse
+import runpy
 import sys
 import time
 from collections.abc import Callable
@@ -58,9 +61,44 @@ def flip(client: ApiClient, low: float = 3.0, high: float = 6.0) -> int:
     return 0 if all(a["status"] == "sent" for a in flips) else 1
 
 
+REPLAY_AS_OF = "2026-07-10T20:00:00Z"   # what the Replay page sends for its default day
+DEMO_REQUEST = {"ticker": "DAL", "note_size_usd_m": 1000.0, "tenor_years": 7, "coupon_spread_bp": 150.0,
+                "coverage_threshold": 3.0, "fuel_passthrough": 1.0, "include_peers": True}  # the pages' defaults
+BRIEF_WAIT_S = 120.0
+POLL_BRIEF_S = 2.0
+
+
+def warm(client: ApiClient, as_of: str | None = None, sleep: Callable[[float], None] = time.sleep) -> int:
+    """Ask the demo questions once so their LLM briefs land in llm_cache (C14). A brief is cached only
+    for the exact question and as_of, so pin the live demo's as_of with --as-of and use it in the Run page."""
+    statuses = []
+    try:
+        for when in [REPLAY_AS_OF] + ([as_of] if as_of else []):
+            run = client.post("/runs", DEMO_REQUEST | {"as_of": when})
+            waited = 0.0
+            while run["brief"]["llm_status"] == "pending" and waited < BRIEF_WAIT_S:
+                sleep(POLL_BRIEF_S)
+                waited += POLL_BRIEF_S
+                run = client.get(f"/runs/{run['run_id']}")
+            status = run["brief"]["llm_status"]
+            statuses.append(status)
+            print(f"{DEMO_REQUEST['ticker']} as of {when}: run {run['run_id']}, LLM brief {status}")
+    except ApiError as e:
+        print(f"{e.code}: {e.message}", file=sys.stderr)
+        return 2
+    if all(s == "ready" for s in statuses):
+        print("Cache warm. For the demo set LLM_MODE=cache_only in .env and restart make api; "
+              "a network failure then cannot break the briefs.")
+        return 0
+    print("Some briefs are not ready (failed: providers down or LLM_MODE=off; rejected: a number failed the check). "
+          "Those runs will show the template brief.")
+    return 1
+
+
 def eval() -> int:  # noqa: A001 - the LLD names the command `eval`
-    print("make eval: not implemented yet - wired to lane B's eval module in C14", file=sys.stderr)
-    return 2
+    """Lane B's five-check report (python -m airscen.eval)."""
+    runpy.run_module("airscen.eval", run_name="__main__")
+    return 0
 
 
 def _start(client: ApiClient, body: dict, wait: bool, sleep: Callable[[float], None]) -> int:
@@ -99,7 +137,9 @@ def main(argv: list[str] | None = None, sleep: Callable[[float], None] = time.sl
     p_flip = sub.add_parser("flip", help="demo: force a BREACH_FLIP alert (two alert ticks)")
     p_flip.add_argument("--low", type=float, default=3.0, help="coverage threshold for the first tick")
     p_flip.add_argument("--high", type=float, default=6.0, help="coverage threshold for the second tick")
-    sub.add_parser("eval", help="run the evaluation checks (C14)")
+    p_warm = sub.add_parser("warm", help="ask the demo questions once to fill llm_cache")
+    p_warm.add_argument("--as-of", help="also warm the live demo at this UTC time, e.g. 2026-10-11T14:00:00Z")
+    sub.add_parser("eval", help="print lane B's evaluation report")
     args = parser.parse_args(argv)
 
     if args.command == "eval":
@@ -107,6 +147,8 @@ def main(argv: list[str] | None = None, sleep: Callable[[float], None] = time.sl
     client = ApiClient()
     if args.command == "flip":
         return flip(client, args.low, args.high)
+    if args.command == "warm":
+        return warm(client, args.as_of, sleep=sleep)
     if args.command == "ingest":
         return ingest(client, args.sources, args.tickers, wait=not args.no_wait, sleep=sleep)
     return backfill(client, args.window, args.tickers, wait=not args.no_wait, sleep=sleep)

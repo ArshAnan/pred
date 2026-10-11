@@ -34,8 +34,8 @@ help:
 	@echo   ingest    fetch markets, filings and macro through the API, needs make api running
 	@echo   backfill  backfill quotes for a replay window, usage: make backfill WINDOW=2026-07-01..2026-07-12
 	@echo   flip      demo: force a BREACH_FLIP alert to Slack, needs make api running
-	@echo   warm      placeholder until C14
-	@echo   eval      placeholder until C14
+	@echo   warm      fill the LLM cache for the demo questions, optional AS_OF=2026-10-11T14:00:00Z
+	@echo   eval      print the five-check evaluation report
 
 setup:
 	$(PYTHON) -m venv .venv
@@ -65,9 +65,10 @@ backfill:
 flip:
 	$(PY) -m airscen.cli flip
 
-# Placeholders: fail loudly so nobody mistakes them for a working step.
+# Fill llm_cache for the demo questions (needs make api running and a live LLM), then set LLM_MODE=cache_only.
 warm:
-	$(error make warm: not implemented yet - wired in C14)
+	$(PY) -m airscen.cli warm$(if $(AS_OF), --as-of $(AS_OF))
 
+# Lane B's five-check evaluation report.
 eval:
-	$(error make eval: not implemented yet - wired to lane B's eval module in C14)
+	$(PY) -m airscen.eval

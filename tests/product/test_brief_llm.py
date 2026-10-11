@@ -71,6 +71,22 @@ def test_brief_problems_reports_invented_numbers_and_length(store):
     assert any("401 words" in p for p in brief.brief_problems(long, run, facts))
 
 
+def test_the_same_question_sends_the_same_input_so_the_llm_cache_can_hit(store):
+    # C14: run_id, created_at and data_version change every run; they must not reach the model,
+    # or LLM_MODE=cache_only could never find a warmed brief.
+    llm = ScriptedLLM(GOOD, GOOD)
+    service = svc(store, None)
+    facts, _ = store.latest_facts("DAL", AS_OF)
+    first, second = new_run(service), new_run(service)
+    second = second.model_copy(update={"created_at": AS_OF.replace(hour=16), "data_version": "other"})
+    assert first.run_id != second.run_id
+    brief.llm_brief(first, llm, facts)
+    brief.llm_brief(second, llm, facts)
+    assert llm.calls[0]["user"] == llm.calls[1]["user"]
+    run_part = json.loads(llm.calls[0]["user"])["run"]
+    assert not {"run_id", "created_at", "data_version", "brief"} & set(run_part)
+
+
 # ---- finish_brief ----
 
 def test_a_run_with_an_llm_starts_pending(store):

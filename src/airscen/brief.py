@@ -151,7 +151,9 @@ def brief_problems(md: str, result: RunResult, facts: Sequence[Any] = ()) -> lis
 
 def _brief_input(result: RunResult, facts: Sequence[Any]) -> dict:
     return {
-        "run": result.model_dump(mode="json", exclude={"brief"}),
+        # run_id, created_at and data_version differ on every run; leaving them out lets the same question
+        # hit the LLM cache (make warm, then LLM_MODE=cache_only).
+        "run": result.model_dump(mode="json", exclude={"brief", "run_id", "created_at", "data_version"}),
         "facts": [
             {"id": f"F{i}", "metric": f.metric.value, "value": f.value, "unit": f.unit, "basis": f.basis.value,
              "period_end": f.period_end.isoformat(), "source_url": f.source_url}
