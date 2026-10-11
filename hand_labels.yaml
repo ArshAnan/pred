@@ -1,0 +1,282 @@
+# Hand labels observed 2026-10-10 from the Kalshi public API (no key).
+# Fed: https://external-api.kalshi.com/trade-api/v2/markets?event_ticker=KXFEDDECISION-26OCT
+# WTI close-above (strike_type greater), not a touch series:
+# https://external-api.kalshi.com/trade-api/v2/markets?event_ticker=KXWTI-26OCT1314
+# CPI: https://external-api.kalshi.com/trade-api/v2/markets?series_ticker=KXCPI&status=open
+# KXCLOSEHORMUZ, KXHORMUZTRAFFIC, and KXHORMUZRETURN had no open markets.
+# H26 and C26 are kind "other" so they do not replace the 25bp hike or cut.
+# Hold uses yes_moves_factor "down" because the schema has no "unchanged";
+# rate_states reads outcome, not direction.
+
+- venue: kalshi
+  market_id: KXFEDDECISION-26OCT-H0
+  relevant: true
+  factor: rates
+  yes_moves_factor: down
+  mechanism: "Yes means the Fed holds the funds rate at the October 2026 meeting."
+  citation: "https://external-api.kalshi.com/trade-api/v2/markets?event_ticker=KXFEDDECISION-26OCT"
+  kind: per_meeting
+  outcome: hold
+  group_key: KXFEDDECISION-26OCT
+
+- venue: kalshi
+  market_id: KXFEDDECISION-26OCT-H25
+  relevant: true
+  factor: rates
+  yes_moves_factor: up
+  mechanism: "Yes means a 25bp hike at the October 2026 meeting, raising variable-rate interest."
+  citation: "https://external-api.kalshi.com/trade-api/v2/markets?event_ticker=KXFEDDECISION-26OCT"
+  kind: per_meeting
+  outcome: hike
+  threshold: 25
+  threshold_unit: bp
+  group_key: KXFEDDECISION-26OCT
+
+- venue: kalshi
+  market_id: KXFEDDECISION-26OCT-C25
+  relevant: true
+  factor: rates
+  yes_moves_factor: down
+  mechanism: "Yes means a 25bp cut at the October 2026 meeting. Cuts fold into the hold state."
+  citation: "https://external-api.kalshi.com/trade-api/v2/markets?event_ticker=KXFEDDECISION-26OCT"
+  kind: per_meeting
+  outcome: cut
+  threshold: 25
+  threshold_unit: bp
+  group_key: KXFEDDECISION-26OCT
+
+- venue: kalshi
+  market_id: KXFEDDECISION-26OCT-H26
+  relevant: true
+  factor: rates
+  yes_moves_factor: up
+  mechanism: "Yes means a hike larger than 25bp. Kept off the 25bp hike input."
+  citation: "https://external-api.kalshi.com/trade-api/v2/markets?event_ticker=KXFEDDECISION-26OCT"
+  kind: other
+  group_key: KXFEDDECISION-26OCT
+
+- venue: kalshi
+  market_id: KXFEDDECISION-26OCT-C26
+  relevant: true
+  factor: rates
+  yes_moves_factor: down
+  mechanism: "Yes means a cut larger than 25bp. Kept off the 25bp cut input."
+  citation: "https://external-api.kalshi.com/trade-api/v2/markets?event_ticker=KXFEDDECISION-26OCT"
+  kind: other
+  group_key: KXFEDDECISION-26OCT
+
+- venue: kalshi
+  market_id: KXWTI-26OCT1314-T86.99
+  relevant: true
+  factor: fuel
+  yes_moves_factor: up
+  mechanism: "Yes means the Oct 13, 2026 WTI settlement is above 86.99 dollars per barrel."
+  citation: "https://external-api.kalshi.com/trade-api/v2/markets?event_ticker=KXWTI-26OCT1314"
+  kind: close_above
+  threshold: 86.99
+  threshold_unit: usd_per_bbl
+  group_key: KXWTI-26OCT1314
+
+- venue: kalshi
+  market_id: KXWTI-26OCT1314-T87.99
+  relevant: true
+  factor: fuel
+  yes_moves_factor: up
+  mechanism: "Yes means the Oct 13, 2026 WTI settlement is above 87.99 dollars per barrel."
+  citation: "https://external-api.kalshi.com/trade-api/v2/markets?event_ticker=KXWTI-26OCT1314"
+  kind: close_above
+  threshold: 87.99
+  threshold_unit: usd_per_bbl
+  group_key: KXWTI-26OCT1314
+
+- venue: kalshi
+  market_id: KXWTI-26OCT1314-T88.99
+  relevant: true
+  factor: fuel
+  yes_moves_factor: up
+  mechanism: "Yes means the Oct 13, 2026 WTI settlement is above 88.99 dollars per barrel."
+  citation: "https://external-api.kalshi.com/trade-api/v2/markets?event_ticker=KXWTI-26OCT1314"
+  kind: close_above
+  threshold: 88.99
+  threshold_unit: usd_per_bbl
+  group_key: KXWTI-26OCT1314
+
+- venue: kalshi
+  market_id: KXWTI-26OCT1314-T89.99
+  relevant: true
+  factor: fuel
+  yes_moves_factor: up
+  mechanism: "Yes means the Oct 13, 2026 WTI settlement is above 89.99 dollars per barrel."
+  citation: "https://external-api.kalshi.com/trade-api/v2/markets?event_ticker=KXWTI-26OCT1314"
+  kind: close_above
+  threshold: 89.99
+  threshold_unit: usd_per_bbl
+  group_key: KXWTI-26OCT1314
+
+- venue: kalshi
+  market_id: KXWTI-26OCT1314-T90.99
+  relevant: true
+  factor: fuel
+  yes_moves_factor: up
+  mechanism: "Yes means the Oct 13, 2026 WTI settlement is above 90.99 dollars per barrel."
+  citation: "https://external-api.kalshi.com/trade-api/v2/markets?event_ticker=KXWTI-26OCT1314"
+  kind: close_above
+  threshold: 90.99
+  threshold_unit: usd_per_bbl
+  group_key: KXWTI-26OCT1314
+
+- venue: kalshi
+  market_id: KXWTI-26OCT1314-T91.99
+  relevant: true
+  factor: fuel
+  yes_moves_factor: up
+  mechanism: "Yes means the Oct 13, 2026 WTI settlement is above 91.99 dollars per barrel."
+  citation: "https://external-api.kalshi.com/trade-api/v2/markets?event_ticker=KXWTI-26OCT1314"
+  kind: close_above
+  threshold: 91.99
+  threshold_unit: usd_per_bbl
+  group_key: KXWTI-26OCT1314
+
+- venue: kalshi
+  market_id: KXWTI-26OCT1314-T92.99
+  relevant: true
+  factor: fuel
+  yes_moves_factor: up
+  mechanism: "Yes means the Oct 13, 2026 WTI settlement is above 92.99 dollars per barrel."
+  citation: "https://external-api.kalshi.com/trade-api/v2/markets?event_ticker=KXWTI-26OCT1314"
+  kind: close_above
+  threshold: 92.99
+  threshold_unit: usd_per_bbl
+  group_key: KXWTI-26OCT1314
+
+- venue: kalshi
+  market_id: KXWTI-26OCT1314-T93.99
+  relevant: true
+  factor: fuel
+  yes_moves_factor: up
+  mechanism: "Yes means the Oct 13, 2026 WTI settlement is above 93.99 dollars per barrel."
+  citation: "https://external-api.kalshi.com/trade-api/v2/markets?event_ticker=KXWTI-26OCT1314"
+  kind: close_above
+  threshold: 93.99
+  threshold_unit: usd_per_bbl
+  group_key: KXWTI-26OCT1314
+
+- venue: kalshi
+  market_id: KXWTI-26OCT1314-T94.99
+  relevant: true
+  factor: fuel
+  yes_moves_factor: up
+  mechanism: "Yes means the Oct 13, 2026 WTI settlement is above 94.99 dollars per barrel."
+  citation: "https://external-api.kalshi.com/trade-api/v2/markets?event_ticker=KXWTI-26OCT1314"
+  kind: close_above
+  threshold: 94.99
+  threshold_unit: usd_per_bbl
+  group_key: KXWTI-26OCT1314
+
+- venue: kalshi
+  market_id: KXWTI-26OCT1314-T95.99
+  relevant: true
+  factor: fuel
+  yes_moves_factor: up
+  mechanism: "Yes means the Oct 13, 2026 WTI settlement is above 95.99 dollars per barrel."
+  citation: "https://external-api.kalshi.com/trade-api/v2/markets?event_ticker=KXWTI-26OCT1314"
+  kind: close_above
+  threshold: 95.99
+  threshold_unit: usd_per_bbl
+  group_key: KXWTI-26OCT1314
+
+- venue: kalshi
+  market_id: KXWTI-26OCT1314-T96.99
+  relevant: true
+  factor: fuel
+  yes_moves_factor: up
+  mechanism: "Yes means the Oct 13, 2026 WTI settlement is above 96.99 dollars per barrel."
+  citation: "https://external-api.kalshi.com/trade-api/v2/markets?event_ticker=KXWTI-26OCT1314"
+  kind: close_above
+  threshold: 96.99
+  threshold_unit: usd_per_bbl
+  group_key: KXWTI-26OCT1314
+
+- venue: kalshi
+  market_id: KXWTI-26OCT1314-T97.99
+  relevant: true
+  factor: fuel
+  yes_moves_factor: up
+  mechanism: "Yes means the Oct 13, 2026 WTI settlement is above 97.99 dollars per barrel."
+  citation: "https://external-api.kalshi.com/trade-api/v2/markets?event_ticker=KXWTI-26OCT1314"
+  kind: close_above
+  threshold: 97.99
+  threshold_unit: usd_per_bbl
+  group_key: KXWTI-26OCT1314
+
+- venue: kalshi
+  market_id: KXWTI-26OCT1314-T100.99
+  relevant: true
+  factor: fuel
+  yes_moves_factor: up
+  mechanism: "Yes means the Oct 13, 2026 WTI settlement is above 100.99. The book was 0.00 by 0.98."
+  citation: "https://external-api.kalshi.com/trade-api/v2/markets?event_ticker=KXWTI-26OCT1314"
+  kind: close_above
+  threshold: 100.99
+  threshold_unit: usd_per_bbl
+  group_key: KXWTI-26OCT1314
+
+- venue: kalshi
+  market_id: KXCPI-26OCT-T0.6
+  relevant: true
+  factor: inflation
+  yes_moves_factor: up
+  mechanism: "Yes means October 2026 CPI rises more than 0.6 percent. Labeled, not modeled."
+  citation: "https://external-api.kalshi.com/trade-api/v2/markets?series_ticker=KXCPI&status=open"
+  kind: level_after
+  threshold: 0.6
+  threshold_unit: percent
+  group_key: KXCPI-26OCT
+
+- venue: kalshi
+  market_id: KXCPI-26OCT-T0.7
+  relevant: true
+  factor: inflation
+  yes_moves_factor: up
+  mechanism: "Yes means October 2026 CPI rises more than 0.7 percent. Labeled, not modeled."
+  citation: "https://external-api.kalshi.com/trade-api/v2/markets?series_ticker=KXCPI&status=open"
+  kind: level_after
+  threshold: 0.7
+  threshold_unit: percent
+  group_key: KXCPI-26OCT
+
+- venue: kalshi
+  market_id: KXCPI-26OCT-T0.8
+  relevant: true
+  factor: inflation
+  yes_moves_factor: up
+  mechanism: "Yes means October 2026 CPI rises more than 0.8 percent. Labeled, not modeled."
+  citation: "https://external-api.kalshi.com/trade-api/v2/markets?series_ticker=KXCPI&status=open"
+  kind: level_after
+  threshold: 0.8
+  threshold_unit: percent
+  group_key: KXCPI-26OCT
+
+- venue: kalshi
+  market_id: KXCPI-26OCT-T0.9
+  relevant: true
+  factor: inflation
+  yes_moves_factor: up
+  mechanism: "Yes means October 2026 CPI rises more than 0.9 percent. Labeled, not modeled."
+  citation: "https://external-api.kalshi.com/trade-api/v2/markets?series_ticker=KXCPI&status=open"
+  kind: level_after
+  threshold: 0.9
+  threshold_unit: percent
+  group_key: KXCPI-26OCT
+
+- venue: kalshi
+  market_id: KXCPI-26OCT-T1.0
+  relevant: true
+  factor: inflation
+  yes_moves_factor: up
+  mechanism: "Yes means October 2026 CPI rises more than 1.0 percent. Labeled, not modeled."
+  citation: "https://external-api.kalshi.com/trade-api/v2/markets?series_ticker=KXCPI&status=open"
+  kind: level_after
+  threshold: 1.0
+  threshold_unit: percent
+  group_key: KXCPI-26OCT

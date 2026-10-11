@@ -1,0 +1,126 @@
+{
+  "source": "Kalshi historical candlesticks, 60-minute, last bar at or before 2026-07-10T20:00:00Z",
+  "as_of": "2026-07-10T20:00:00Z",
+  "wti_event": "KXWTI-26JUL1314",
+  "wti_ref_q2": {
+    "series": "DCOILWTICO",
+    "start": "2026-04-01",
+    "end": "2026-06-30",
+    "n": 62,
+    "mean": 95.65
+  },
+  "fed": [
+    {
+      "ticker": "KXFEDDECISION-26JUL-H0",
+      "title": "Will the Federal Reserve Hike rates by 0bps at their July 2026 meeting?",
+      "outcome": "hold",
+      "close_time": "2026-07-29T17:59:00Z",
+      "bid": 0.79,
+      "ask": 0.8,
+      "volume": 9400.26,
+      "ts": "2026-07-10T20:00:00Z"
+    },
+    {
+      "ticker": "KXFEDDECISION-26JUL-H25",
+      "title": "Will the Federal Reserve Hike rates by 25bps at their July 2026 meeting?",
+      "outcome": "hike",
+      "close_time": "2026-07-29T17:59:00Z",
+      "bid": 0.2,
+      "ask": 0.21,
+      "volume": 15758.14,
+      "ts": "2026-07-10T20:00:00Z"
+    },
+    {
+      "ticker": "KXFEDDECISION-26JUL-C25",
+      "title": "Will the Federal Reserve Cut rates by 25bps at their July 2026 meeting?",
+      "outcome": "cut",
+      "close_time": "2026-07-29T17:59:00Z",
+      "bid": 0.01,
+      "ask": 0.02,
+      "volume": 216.0,
+      "ts": "2026-07-10T20:00:00Z"
+    }
+  ],
+  "wti": [
+    {
+      "ticker": "KXWTI-26JUL1314-T64.49",
+      "title": "Will the WTI crude oil settlement price be above 64.49 USD/Bbl on Jul 13, 2026?",
+      "threshold": 64.49,
+      "close_time": "2026-07-13T18:30:00Z",
+      "bid": 0.98,
+      "ask": 0.99,
+      "volume": 0.0,
+      "ts": "2026-07-10T20:00:00Z"
+    },
+    {
+      "ticker": "KXWTI-26JUL1314-T66.49",
+      "title": "Will the WTI crude oil settlement price be above 66.49 USD/Bbl on Jul 13, 2026?",
+      "threshold": 66.49,
+      "close_time": "2026-07-13T18:30:00Z",
+      "bid": 0.97,
+      "ask": 0.98,
+      "volume": 0.0,
+      "ts": "2026-07-10T20:00:00Z"
+    },
+    {
+      "ticker": "KXWTI-26JUL1314-T68.49",
+      "title": "Will the WTI crude oil settlement price be above 68.49 USD/Bbl on Jul 13, 2026?",
+      "threshold": 68.49,
+      "close_time": "2026-07-13T18:30:00Z",
+      "bid": 0.91,
+      "ask": 0.92,
+      "volume": 0.0,
+      "ts": "2026-07-10T20:00:00Z"
+    },
+    {
+      "ticker": "KXWTI-26JUL1314-T70.49",
+      "title": "Will the WTI crude oil settlement price be above 70.49 USD/Bbl on Jul 13, 2026?",
+      "threshold": 70.49,
+      "close_time": "2026-07-13T18:30:00Z",
+      "bid": 0.65,
+      "ask": 0.68,
+      "volume": 1581.0,
+      "ts": "2026-07-10T20:00:00Z"
+    },
+    {
+      "ticker": "KXWTI-26JUL1314-T72.49",
+      "title": "Will the WTI crude oil settlement price be above 72.49 USD/Bbl on Jul 13, 2026?",
+      "threshold": 72.49,
+      "close_time": "2026-07-13T18:30:00Z",
+      "bid": 0.31,
+      "ask": 0.33,
+      "volume": 2694.0,
+      "ts": "2026-07-10T20:00:00Z"
+    },
+    {
+      "ticker": "KXWTI-26JUL1314-T74.49",
+      "title": "Will the WTI crude oil settlement price be above 74.49 USD/Bbl on Jul 13, 2026?",
+      "threshold": 74.49,
+      "close_time": "2026-07-13T18:30:00Z",
+      "bid": 0.1,
+      "ask": 0.11,
+      "volume": 65.85,
+      "ts": "2026-07-10T20:00:00Z"
+    },
+    {
+      "ticker": "KXWTI-26JUL1314-T76.49",
+      "title": "Will the WTI crude oil settlement price be above 76.49 USD/Bbl on Jul 13, 2026?",
+      "threshold": 76.49,
+      "close_time": "2026-07-13T18:30:00Z",
+      "bid": 0.03,
+      "ask": 0.04,
+      "volume": 9.37,
+      "ts": "2026-07-10T20:00:00Z"
+    },
+    {
+      "ticker": "KXWTI-26JUL1314-T78.49",
+      "title": "Will the WTI crude oil settlement price be above 78.49 USD/Bbl on Jul 13, 2026?",
+      "threshold": 78.49,
+      "close_time": "2026-07-13T18:30:00Z",
+      "bid": 0.01,
+      "ask": 0.02,
+      "volume": 0.0,
+      "ts": "2026-07-10T20:00:00Z"
+    }
+  ]
+}

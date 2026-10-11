@@ -16,9 +16,9 @@ Format of each item: task → LLD reference → **Done when**.
 - [x] **B0.2** Write `tests/fixtures/worked_example.json` and `ladder.json` from the §6 worked example (inputs and every expected output: six rows, breakevens 103.16 / 102.77, `p_breach` 0.297, P10/P50/P90 = 80.00 / 94.44 / 118.00, liquidity cover 2.08). Mark them illustrative. C needs these now. **Done when** committed at CP0.
 
   Both files are on `main` and `tests/model/test_fixtures.py` locks them. Operating income is the 2-decimal formula value (1590.43, 1196.42, 553.57). The LLD display table rounds those three cells.
-- [ ] **B0.3** Get LLM keys: Snowflake MLH trial (mlh.link/snowflake) and a Gemini AI Studio key. **Done when** both are in your `.env`.
+- [x] **B0.3** Get LLM keys: Snowflake MLH trial (mlh.link/snowflake) and a Gemini AI Studio key. **Done when** both are in your `.env`.
 
-  Not done. This checkout has no `.env`. `.env.example` lists `SNOWFLAKE_ACCOUNT`, `SNOWFLAKE_PAT` and `GEMINI_API_KEY`.
+  Both are in the local `.env`, which stays untracked. Snowflake `claude-haiku-4-5` and Gemini `gemini-3.5-flash` each replied through `LLMClient` on 2026-10-10. Details are under B8.
 - [ ] **CP0 merged**
 
   Code and fixtures are on `main`. This box stays open until B0.3 and C0.3 are done and someone re-runs the smoke curls.
@@ -35,26 +35,52 @@ Format of each item: task → LLD reference → **Done when**.
 
 ## Block 2 → CP2 First real Delta run
 
-- [ ] **B7** `llm.py`: `complete_json` / `complete_text`; `cache_key = sha256(task, prompt_version, input)` using the store's `cache_get` / `cache_put` (fake in-memory cache until A merges); chain from `LLM_CHAIN`; modes `live` / `cache_only` / `off`; move on for connection errors, 429, 402, 5xx; one repair retry on bad JSON; budget guard (120 calls/hour, 20,000 input tokens); log provider, model, tokens, latency, cache hit; temperature 0. **Done when** fake-provider tests cover cache hit (no call), fallback order, repair retry, budget error, and `cache_only` miss.
-- [ ] **B8** One real Snowflake Cortex call with `claude-haiku-4-5` via the OpenAI-compatible endpoint, then one real Gemini call. Check the trial credit balance and any daily cap (LLD open item). **Done when** both work, and the findings are in the README notes for C.
-- [ ] **B9** `hand_labels.yaml` + `scout.candidates()`: keyword prefilter over A's market list; hand-label 15–30 shortlist markets (next Fed meeting hold/hike/cut, the WTI close-above ladder, CPI, Hormuz) with factor, direction, mechanism. Check A's parsed `kind`, `threshold`, `group_key`, `outcome` for each. **Done when** the shortlist is labeled in the DB and `factors` produces a fuel curve and rate states from live quotes (or you know exactly why not).
+- [x] **B7** `llm.py`: `complete_json` / `complete_text`; `cache_key = sha256(task, prompt_version, input)` using the store's `cache_get` / `cache_put` (fake in-memory cache until A merges); chain from `LLM_CHAIN`; modes `live` / `cache_only` / `off`; move on for connection errors, 429, 402, 5xx; one repair retry on bad JSON; budget guard (120 calls/hour, 20,000 input tokens); log provider, model, tokens, latency, cache hit; temperature 0. **Done when** fake-provider tests cover cache hit (no call), fallback order, repair retry, budget error, and `cache_only` miss.
+
+  `tests/model/test_llm.py` covers those cases, plus a 400 that stops the chain, `off` (no cache read), and a JSON array for `extract_metrics`. The module does not import the store. `mode="off"` raises before `cache_get`. Snowflake requests send `Accept: application/json`, `max_completion_tokens` (Cortex rejects `max_tokens`), and `response_format.type=json_schema` on `complete_json`. The placeholder `<current Flash model id>` resolves to `gemini-3.5-flash`. `gemini-3.8-flash` is listed for this key, and Google tells new users to use it, but on 2026-10-10 `generateContent` returned 503 and the OpenAI-compatible call produced no bytes within 40 seconds. The Ollama placeholder resolves to `llama3.1`; that model is not installed here (`gemma4:latest` is).
+- [x] **B8** One real Snowflake Cortex call with `claude-haiku-4-5` via the OpenAI-compatible endpoint, then one real Gemini call. Check the trial credit balance and any daily cap (LLD open item). **Done when** both work, and the findings are in the README notes for C.
+
+  Both calls went through `LLMClient` on 2026-10-10. README is Lane C, so the note for C is here:
+
+  Snowflake Cortex `claude-haiku-4-5` replied `ok` (17 input tokens, 4 output). A `complete_json` call with `response_format.json_schema` returned `{"word":"ok"}` (660 input, 33 output); the schema overhead is much larger than the one-word prompt. The chat response does not include the trial credit balance or a daily cap, so that Snowsight check is still open. An older Snowflake trial page described about one Cortex credit per day; current pages do not repeat it. The token was rejected with `390432` until an account authentication policy set `PAT_POLICY NETWORK_POLICY_EVALUATION=NOT_ENFORCED`. Gemini `gemini-3.5-flash` replied `Ok` on the OpenAI-compatible endpoint (12 input, 1 output). `gemini-3.8-flash` returned 503 under load the same day.
+- [x] **B9** `hand_labels.yaml` + `scout.candidates()`: keyword prefilter over A's market list; hand-label 15–30 shortlist markets (next Fed meeting hold/hike/cut, the WTI close-above ladder, CPI, Hormuz) with factor, direction, mechanism. Check A's parsed `kind`, `threshold`, `group_key`, `outcome` for each. **Done when** the shortlist is labeled in the DB and `factors` produces a fuel curve and rate states from live quotes (or you know exactly why not).
+
+  23 Kalshi markets are in `hand_labels.yaml`, observed 2026-10-10 from the public API: October Fed `H0` hold, `H25` hike, `C25` cut (`H26` and `C26` are `kind: other` so they do not replace the 25bp contracts), 13 WTI close-above strikes on `KXWTI-26OCT1314` including `T100.99`, and October CPI `T0.6` through `T1.0`. `KXCLOSEHORMUZ`, `KXHORMUZTRAFFIC`, and `KXHORMUZRETURN` had no open markets, so no Hormuz id was invented. `label()` is still B10. The same day's quotes, scored with `trust` and passed to `factors`: `rate_states` gave p_hike 0.1542 on `KXFEDDECISION-26OCT`; `fuel_curve` used 12 thresholds, P10/P50/P90 WTI 87.39 / 91.79 / 95.99, flags `CRUDE_ONLY` and `RESOLVE_DATE_PROXY`. `T100.99` was excluded below the trust floor (score 0.15; the book was 0.00 by 0.98). The shortlist is not in the database: `Repository` and the Kalshi adapter still raise `NotImplementedError` (Lane A). A's parsed `kind` was not available to compare; the overrides were taken from `title`, `event_ticker`, `strike_type`, and `floor_strike`.
 - [ ] **CP2 merged** — your part of the exit test: live markets feed the engine for the DAL run.
 
 ## Block 3 → CP3 Full features
 
-- [ ] **B10** `scout.label()` with the LLM: JSON schema = `MarketLabel`, cached by `content_hash`, hand labels always win, LLM failure leaves the market unlabeled. **Done when** a fake-LLM test passes and live labels exist for non-shortlist candidates (shown as "unvalidated" in the brief).
-- [ ] **B11** Peer margin comparison as a pure helper (e.g. in `scenario.py`): adjusted revenue when all compared companies have it, else GAAP with `MARGIN_BASIS_MISMATCH`. **Done when** a test with Delta's refinery numbers ($2,601M of $20,186M) picks adjusted.
-- [ ] **B12** First replay run as of 2026-07-10 using A's backfill. Sanity-check the outputs by hand. **Done when** it completes with `BACKFILL_INPUTS` and you have written down what the fuel range looked like.
+- [x] **B10** `scout.label()` with the LLM: JSON schema = `MarketLabel`, cached by `content_hash`, hand labels always win, LLM failure leaves the market unlabeled. **Done when** a fake-LLM test passes and live labels exist for non-shortlist candidates (shown as "unvalidated" in the brief).
+
+  Fake-provider tests cover a cache hit, a hand label that skips the model, and an `LLMError` that leaves the market unlabeled. A live Snowflake call on 2026-10-10 labeled `KXCPI-26DEC-T0.9` (not in the hand shortlist) as inflation, direction up, `label_source` llm. The brief does not yet say "unvalidated": `brief.llm_brief` is still Lane C's stub.
+- [x] **B11** Peer margin comparison as a pure helper (e.g. in `scenario.py`): adjusted revenue when all compared companies have it, else GAAP with `MARGIN_BASIS_MISMATCH`. **Done when** a test with Delta's refinery numbers ($2,601M of $20,186M) picks adjusted.
+
+  `compare_margins` uses adjusted revenue 17,585 when every company has it (20,186 minus 2,601). A peer with only GAAP revenue switches the comparison to GAAP and sets `MARGIN_BASIS_MISMATCH`.
+- [x] **B12** First replay run as of 2026-07-10 using A's backfill. Sanity-check the outputs by hand. **Done when** it completes with `BACKFILL_INPUTS` and you have written down what the fuel range looked like.
+
+  Lane A's backfill is still a stub, so the replay reads `tests/fixtures/july10_replay.json`: Kalshi 60-minute candlesticks at or before 2026-07-10T20:00:00Z for `KXFEDDECISION-26JUL` and the `KXWTI-26JUL1314` close-above ladder (open 2026-07-09, resolves 2026-07-13). Quotes are marked `backfill_kalshi`, trust is capped at 0.50, and the run carries `BACKFILL_INPUTS`. Fuel range: WTI P10 68.61, P50 71.45, P90 74.63 (8 thresholds). p_hike 0.2020. Q2 mean `DCOILWTICO` was 95.65 (62 observations, 2026-04-01 to 2026-06-30). The ladder's strikes only run from 64.49 to 78.99, so this near-dated curve sits below that spot mean. June-quarter operating income is not in `overrides.yaml`, so the coverage grid was not computed.
 - [ ] **CP3 merged**
 
 ## Block 4 → CP4 Eval and demo freeze (`python -m airscen.eval`, opens the DB read-only)
 
 Build in this order; the first two are never cut.
 
-- [ ] **B13** `eval/checks.py` — number correctness: `extract` output vs `overrides.yaml` for all three airlines; Delta's debt identity (3,324 + 9,527 = 12,851) and balance sheet (33,575 + 29,960 + 22,513 = 86,048). **Done when** it prints pass/fail per metric.
-- [ ] **B14** `eval/replay.py` — Delta replay as of 2026-07-10 (guide about $3.15/gal) vs the September quarter (adjusted $3.61/gal, coverage about 10x). The test: was the market-implied high-fuel state non-trivial in July and does the range bracket the outcome? **Done when** it prints the July scenario range next to the realised values, with "one case study, not a statistical result".
-- [ ] **B15** `eval/ablation.py` (cut first) — rerun the replay with only the company's own fuel assumption. Converting $3.15/gal into a WTI level is an assumption; state how you did it. **Done when** it prints both errors.
-- [ ] **B16** `eval/faithfulness` (cut second) — run C's `brief.check_numbers` over stored LLM briefs, report the pass rate. **Done when** it prints a rate and sample size.
-- [ ] **B17** `eval/calibration.py` (cut third) — Brier score vs the 0.25 of always saying 50%, plus a reliability table by liquidity bucket, on A's resolved markets. **Done when** it prints both with the sample size.
+- [x] **B13** `eval/checks.py` — number correctness: `extract` output vs `overrides.yaml` for all three airlines; Delta's debt identity (3,324 + 9,527 = 12,851) and balance sheet (33,575 + 29,960 + 22,513 = 86,048). **Done when** it prints pass/fail per metric.
+
+  Both identities print pass. `overrides.yaml` is still `{}` and `extract_facts` is still Lane A's stub, so DAL, UAL, and AAL each print `extract: fail (no extracted facts and no overrides)`. A supplied extract that matches an override prints pass; a metric with no override prints fail.
+- [x] **B14** `eval/replay.py` — Delta replay as of 2026-07-10 (guide about $3.15/gal) vs the September quarter (adjusted $3.61/gal, coverage about 10x). The test: was the market-implied high-fuel state non-trivial in July and does the range bracket the outcome? **Done when** it prints the July scenario range next to the realised values, with "one case study, not a statistical result".
+
+  The report prints WTI P10/P50/P90 68.61 / 71.45 / 74.63 next to the guide 3.15 USD/gal and the September outcome 3.61 USD/gal, coverage about 10x, and the case-study line. The high state is about 3 USD/bbl above the median, so it is not a trivial copy of P50. Under the crack-unchanged map in B15 that whole range is about 2.51 to 2.65 USD/gal, which does not bracket 3.61. The curve resolves on 2026-07-13, not over the September quarter.
+- [x] **B15** `eval/ablation.py` (cut first) — rerun the replay with only the company's own fuel assumption. Converting $3.15/gal into a WTI level is an assumption; state how you did it. **Done when** it prints both errors.
+
+  Assumption, stated in the report: the crack is unchanged, so gallon = 3.15 + (WTI - 95.65) / 42. The without-markets case is the guide itself. Market P50 71.45 implies 2.5738 USD/gal, error 1.0362 against 3.61. The guide's error is 0.4600. On this one case the company's own number was closer.
+- [x] **B16** `eval/faithfulness` (cut second) — run C's `brief.check_numbers` over stored LLM briefs, report the pass rate. **Done when** it prints a rate and sample size.
+
+  `faithfulness_lines` prints the rate and the sample size. A test with one faithful sentence and one invented number prints pass rate 0.50, sample size 2. `python -m airscen.eval` prints sample size 0 because the store still has no brief reader and no saved LLM briefs.
+- [x] **B17** `eval/calibration.py` (cut third) — Brier score vs the 0.25 of always saying 50%, plus a reliability table by liquidity bucket, on A's resolved markets. **Done when** it prints both with the sample size.
+
+  The report prints the Brier score next to 0.25 and a low/medium/high liquidity table. There are no resolved markets in the store, so the command prints sample size 0. A two-row fixture in the test prints a score and both buckets.
 - [ ] **B18** `python -m airscen.eval` runs all available checks and prints one report ending with the stated limits. Tune trust weights / thresholds on the replay only if time remains, and record any change. **Done when** `make eval` works on `main`.
+
+  `python -m airscen.eval` prints the five checks and ends with the three limits. Trust weights were not changed. `make eval` is still the placeholder in the Makefile, which Lane C owns, so this box stays open until that target calls this module on `main`.
 - [ ] **CP4 merged**
