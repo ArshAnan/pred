@@ -77,6 +77,19 @@ def test_template_passes_its_own_number_check(brief, make_run, synthetic_peer):
     assert brief.check_numbers(brief.template_brief(run), run)
 
 
+def test_template_does_not_spell_the_treasury_tenor_as_a_bare_number(brief, make_run):
+    """A live book can have no figure near 10. '10-year' would then fail the number check."""
+    md = brief.template_brief(make_run())
+    assert "ten-year Treasury" in md
+    assert "10-year" not in md
+    assert brief.check_numbers("Coupon spread over the ten-year Treasury is 150 bp.", make_run())
+    bare = make_run(rows=[], summary={
+        "p_breach": 0.0, "breakeven_wti_hold": 104.6, "breakeven_wti_hike": 104.6,
+        "coverage_p50": 8.16, "coverage_p90": 7.48, "liquidity_cover": 2.08, "liquidity_ok": True,
+    })
+    assert not brief.check_numbers("Coupon spread over the 10-year Treasury is 150 bp.", bare)
+
+
 # ---- check_numbers ----
 
 def test_check_numbers_rejects_an_invented_number(brief, worked_example_run):

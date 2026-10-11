@@ -71,7 +71,7 @@ def template_brief(result: RunResult) -> str:
         "| Input | Value |",
         "| --- | --- |",
         f"| New note | {_usd(req.note_size_usd_m)}, {req.tenor_years}-year |",
-        f"| Coupon spread over the 10-year Treasury | {req.coupon_spread_bp:g} bp |",
+        f"| Coupon spread over the ten-year Treasury | {req.coupon_spread_bp:g} bp |",
         f"| Coverage threshold | {theta} |",
         f"| Fuel pass-through | {req.fuel_passthrough:.2f} (full pass-through means no offset) |",
         "",
