@@ -114,6 +114,184 @@ def test_form_sends_the_run_request(api):
     assert req.headers["Idempotency-Key"]
 
 
+# ---- LLM brief polling (C9) ----
+
+def brief_state(run: dict, status: str, md: str | None = None) -> dict:
+    return run | {"brief": run["brief"] | {"llm_status": status, "llm_md": md}}
+
+
+def test_page_polls_until_the_llm_brief_is_ready(api, monkeypatch):
+    monkeypatch.setenv("AIRSCEN_POLL_S", "0")
+    body = {"ticker": "DAL", "note_size_usd_m": 1000, "tenor_years": 7, "coupon_spread_bp": 150}
+    run = run_json(body)
+    api.post("/runs").respond(201, json=brief_state(run, "pending"))
+    polls = api.get(f"/runs/{run['run_id']}").mock(side_effect=[
+        httpx.Response(200, json=brief_state(run, "pending")),
+        httpx.Response(200, json=brief_state(run, "ready", "**LLM brief:** coverage stays above 6.00x.")),
+    ])
+    at = click_run(start())
+    assert polls.call_count == 2
+    assert "**LLM brief:** coverage stays above 6.00x." in [m.value for m in at.markdown]
+    assert any("LLM brief: ready" in c.value for c in at.caption)
+
+
+def test_page_shows_the_template_when_the_llm_brief_takes_too_long(api, monkeypatch):
+    monkeypatch.setenv("AIRSCEN_POLL_S", "0")
+    monkeypatch.setenv("AIRSCEN_POLL_TIMEOUT_S", "0.05")
+    body = {"ticker": "DAL", "note_size_usd_m": 1000, "tenor_years": 7, "coupon_spread_bp": 150}
+    run = run_json(body)
+    api.post("/runs").respond(201, json=brief_state(run, "pending"))
+    api.get(f"/runs/{run['run_id']}").respond(200, json=brief_state(run, "pending"))
+    at = click_run(start())
+    assert "# DAL: can it service a $1,000M 7-year note?" in page_text(at)
+    assert any("still being written" in c.value for c in at.caption)
+
+
+# ---- Peers page (C10) ----
+
+def with_peers(run: dict, *peers: tuple[str, str, list[str]]) -> dict:
+    """SYNTHETIC peer rows for the page test: Delta's summary under another ticker."""
+    return run | {"peers": [{"ticker": t, "period_end": p, "summary": run["summary"], "flags": f} for t, p, f in peers]}
+
+
+def open_page(at: AppTest, name: str) -> AppTest:
+    at.sidebar.radio[0].set_value(name).run()
+    assert not at.exception, at.exception
+    return at
+
+
+def test_peers_page_shows_the_three_airline_table_with_flags(api):
+    companies = COMPANIES + [{"ticker": "UAL", "cik": None, "name": "United Airlines Holdings", "peers": ["DAL", "AAL"]},
+                             {"ticker": "AAL", "cik": None, "name": "American Airlines Group", "peers": ["DAL", "UAL"]}]
+    api.get("/companies").respond(200, json=companies)
+    run = with_peers(run_json({"ticker": "DAL", "note_size_usd_m": 1000, "tenor_years": 7, "coupon_spread_bp": 150}),
+                     ("UAL", "2026-09-30", []), ("AAL", "2026-06-30", ["PERIOD_MISMATCH"]))
+    api.get(f"/runs/{run['run_id']}").respond(200, json=run)
+    facts = api.get("/companies/DAL/facts").respond(200, json=[
+        {"company": "DAL", "metric": "operating_income", "value": 1454, "unit": "usd_m", "basis": "GAAP",
+         "period_end": "2026-09-30", "filed_at": "2026-10-09T12:00:00Z", "source_url": "https://www.sec.gov/x",
+         "extraction": "override", "validated": True}])
+    at = start()
+    at.session_state["run_id"] = run["run_id"]
+    open_page(at, "Peers")
+    table = at.dataframe[0].value
+    assert list(table["Company"]) == ["DAL", "UAL", "AAL"]
+    assert list(table["Breach probability"]) == ["29.7%", "29.7%", "29.7%"]
+    assert list(table["Period end"]) == ["2026-09-30", "2026-09-30", "2026-06-30"]
+    assert "PERIOD_MISMATCH" in list(table["Flags"])[2]
+    assert facts.calls.last.request.url.params["as_of"] == "2026-10-09T14:30:00Z"  # the run's own as_of
+
+
+def test_peers_page_marks_configured_peers_without_a_result(api):
+    api.get("/companies").respond(200, json=COMPANIES + [
+        {"ticker": "UAL", "cik": None, "name": "United Airlines Holdings", "peers": ["DAL", "AAL"]}])
+    run = run_json({"ticker": "DAL", "note_size_usd_m": 1000, "tenor_years": 7, "coupon_spread_bp": 150})
+    api.get(f"/runs/{run['run_id']}").respond(200, json=run)
+    api.get("/companies/DAL/facts").respond(200, json=[])
+    at = start()
+    at.session_state["run_id"] = run["run_id"]
+    open_page(at, "Peers")
+    table = at.dataframe[0].value
+    assert list(table["Company"]) == ["DAL", "UAL", "AAL"]
+    assert list(table["Period end"])[0] == "-"  # no facts visible: shown as unknown, not guessed
+    assert "no result" in list(table["Flags"])[1]
+
+
+def test_peers_page_without_a_run_asks_for_one(api):
+    at = open_page(start(), "Peers")
+    assert any("Run a question first" in i.value for i in at.info)
+
+
+# ---- Alerts page (C12) ----
+
+ALERTS = [
+    {"alert_id": "alert_2", "ts": "2026-10-09T15:00:00Z", "company": "DAL", "run_id": "run_2", "rule": "BREACH_FLIP",
+     "dedup_key": "DAL:BREACH_FLIP:-", "severity": "high", "status": "failed",
+     "payload": {"before": 0.074, "after": 0.297, "threshold": 0.2}},
+    {"alert_id": "alert_1", "ts": "2026-10-09T14:00:00Z", "company": "DAL", "run_id": None, "rule": "DATA_STALE",
+     "dedup_key": "DAL:DATA_STALE:kalshi", "severity": "low", "status": "sent",
+     "payload": {"source": "kalshi", "status": "degraded"}},
+]
+
+
+def test_alerts_page_lists_the_feed_and_marks_undelivered_alerts(api):
+    api.get("/alerts").respond(200, json=ALERTS)
+    at = open_page(start(), "Alerts")
+    table = at.dataframe[0].value
+    assert list(table["Rule"]) == ["BREACH_FLIP", "DATA_STALE"]
+    assert list(table["Delivery"]) == ["NOT DELIVERED", "sent"]
+    assert "7.4% -> 29.7%" in list(table["Detail"])[0]
+
+
+def test_alerts_page_sends_a_test_alert(api):
+    api.get("/alerts").respond(200, json=[])
+    test = api.post("/admin/alerts/test").respond(200, json={"delivered": True})
+    at = open_page(start(), "Alerts")
+    next(b for b in at.button if b.label == "Send test alert").click().run()
+    assert test.call_count == 1 and any("delivered" in s.value for s in at.success)
+
+
+def test_alerts_page_shows_a_failed_test_alert(api):
+    api.get("/alerts").respond(200, json=[])
+    api.post("/admin/alerts/test").respond(502, json=envelope("E_SOURCE_UNAVAILABLE", "Slack did not accept the test alert"))
+    at = open_page(start(), "Alerts")
+    next(b for b in at.button if b.label == "Send test alert").click().run()
+    assert "E_SOURCE_UNAVAILABLE" in "\n".join(e.value for e in at.error)
+
+
+# ---- Exposure map (C13) ----
+
+def market(mid_id, factor, label_source, score, mid, kind="close_above", outcome=None, stale=False):
+    """ILLUSTRATIVE market rows for the page test."""
+    return {"meta": {"venue": "kalshi", "market_id": mid_id, "token_id": None, "title": f"{mid_id} title", "rules": "",
+                     "close_time": "2026-12-01T00:00:00Z", "kind": kind, "outcome": outcome, "threshold": None,
+                     "threshold_unit": None, "group_key": "G"},
+            "label": {"relevant": True, "factor": factor, "yes_moves_factor": "up", "mechanism": "m",
+                      "citation": None, "label_source": label_source},
+            "latest": None,
+            "trust": {"venue": "kalshi", "market_id": mid_id, "score": score, "mid": mid, "components": {},
+                      "excluded_reason": None},
+            "stale": stale}
+
+
+def test_exposure_map_ranks_factors_by_trust_and_marks_llm_labels(api):
+    api.get("/markets").respond(200, json=[
+        market("FED-HIKE", "rates", "hand", 0.70, 0.17, kind="per_meeting", outcome="hike"),
+        market("WTI-90", "fuel", "llm", 0.95, 0.62), market("WTI-100", "fuel", "hand", 0.90, 0.35),
+    ])
+    at = open_page(start(), "Exposure map")
+    table = at.dataframe[0].value
+    assert list(table["Factor"]) == ["fuel", "fuel", "rates"]      # fuel's total trust outranks rates
+    assert list(table["Label"]) == ["LLM (unvalidated)", "hand", "hand"]
+    assert list(table["Trust"]) == ["0.95", "0.90", "0.70"]
+    assert list(table["YES means"])[0] == "fuel up"
+
+
+def test_exposure_map_with_no_markets(api):
+    api.get("/markets").respond(200, json=[])
+    at = open_page(start(), "Exposure map")
+    assert any("No markets" in i.value for i in at.info)
+
+
+# ---- Replay (C13) ----
+
+def test_replay_at_july_10_shows_a_run_with_backfill_inputs(api):
+    body = {"ticker": "DAL", "note_size_usd_m": 1000, "tenor_years": 7, "coupon_spread_bp": 150}
+
+    def handler(request: httpx.Request):
+        sent = json.loads(request.content)
+        run = run_json(sent | {"as_of": sent["as_of"]})
+        return httpx.Response(201, json=run | {"flags": run["flags"] + ["BACKFILL_INPUTS"]})
+    route = api.post("/runs").mock(side_effect=handler)
+    at = open_page(start(), "Replay")
+    assert at.slider[-1].value.isoformat() == "2026-07-10"          # the demo replay date by default
+    next(b for b in at.button if b.label == "Replay").click().run()
+    sent = json.loads(route.calls.last.request.content)
+    assert sent["as_of"] == "2026-07-10T20:00:00Z" and sent["ticker"] == "DAL"
+    assert any("Replay as of 2026-07-10 20:00 UTC" in w.value for w in at.warning)
+    assert "BACKFILL_INPUTS" in page_text(at)
+
+
 # ---- errors ----
 
 def test_error_banner_shows_code_message_and_missing_facts(api):

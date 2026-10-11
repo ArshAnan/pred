@@ -6,8 +6,11 @@ library, never the store or the engine (DD-1). Run with `make ui`.
 
 from __future__ import annotations
 
+import os
+import time
 import uuid
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, timezone
+from datetime import time as clock_time
 
 import streamlit as st
 
@@ -107,7 +110,7 @@ def run_form() -> dict | None:
             peers = st.checkbox("Include peers", value=True)
             use_now = st.checkbox("Use the current time", value=True)
             as_of_date = st.date_input("As of date (UTC)", value=date.today())
-            as_of_time = st.time_input("As of time (UTC)", value=time(0, 0))
+            as_of_time = st.time_input("As of time (UTC)", value=clock_time(0, 0))
         if not st.form_submit_button("Run"):
             return None
     as_of = None if use_now else datetime.combine(as_of_date, as_of_time, tzinfo=timezone.utc)
@@ -116,6 +119,20 @@ def run_form() -> dict | None:
         "note_size_usd_m": float(note), "tenor_years": int(tenor), "coupon_spread_bp": float(spread),
         "coverage_threshold": float(threshold), "fuel_passthrough": float(passthrough), "include_peers": bool(peers),
     }
+
+
+def await_brief(result: RunResult) -> RunResult:
+    """Poll GET /runs/{id} every 2 s for up to 60 s while the LLM brief is pending (LLD section 7)."""
+    poll_s = float(os.environ.get("AIRSCEN_POLL_S", "2"))
+    deadline = time.monotonic() + float(os.environ.get("AIRSCEN_POLL_TIMEOUT_S", "60"))
+    with st.spinner("Writing the LLM brief; the numbers above are final."):
+        while result.brief.llm_status == "pending" and time.monotonic() < deadline:
+            time.sleep(poll_s)
+            try:
+                result = RunResult.model_validate(client().get(f"/runs/{result.run_id}"))
+            except ApiError:
+                break
+    return result
 
 
 def submit(body: dict) -> RunResult | None:
@@ -160,18 +177,172 @@ def show_result(result: RunResult) -> None:
 
     st.subheader("Brief")
     b = result.brief
-    st.caption(f"LLM brief: {b.llm_status}. Showing the {'LLM' if b.llm_status == 'ready' and b.llm_md else 'template'} brief.")
+    if b.llm_status == "pending":
+        st.caption("The LLM brief is still being written; showing the template brief. Rerun to check again.")
+    else:
+        st.caption(f"LLM brief: {b.llm_status}. Showing the {'LLM' if b.llm_status == 'ready' and b.llm_md else 'template'} brief.")
     st.markdown(b.llm_md if b.llm_status == "ready" and b.llm_md else b.template_md)
 
 
-def main() -> None:
-    st.set_page_config(page_title="AirScen Run", layout="wide")
+def last_run() -> RunResult | None:
+    """The run in this session (GET /runs/{id}; never cached), or None."""
+    if not st.session_state.get("run_id"):
+        return None
+    try:
+        return RunResult.model_validate(client().get(f"/runs/{st.session_state['run_id']}"))
+    except ApiError as e:
+        error_banner(e)
+        return None
+
+
+def period_end(ticker: str, as_of: datetime) -> str:
+    """The company's latest operating-income period at as_of, from GET /companies/{ticker}/facts."""
+    try:
+        facts = client().get(f"/companies/{ticker}/facts", {"as_of": as_of.isoformat().replace("+00:00", "Z")})
+    except ApiError:
+        return "-"
+    ends = [f["period_end"] for f in facts if f["metric"] == "operating_income"]
+    return max(ends) if ends else "-"
+
+
+def peer_rows(result: RunResult, configured: list[str]) -> list[dict[str, str]]:
+    def row(ticker: str, period: str, s, flags: list[str]) -> dict[str, str]:
+        return {
+            "Company": ticker, "Period end": period, "Breach probability": pct(s.p_breach),
+            "Breakeven WTI, hold / hike": f"{num(s.breakeven_wti_hold)} / {num(s.breakeven_wti_hike)}",
+            "Coverage P50 / P90": f"{times(s.coverage_p50)} / {times(s.coverage_p90)}",
+            "Liquidity cover": times(s.liquidity_cover), "Flags": ", ".join(flags) or "-",
+        }
+
+    as_of = result.as_of.astimezone(timezone.utc)
+    rows = [row(result.company, period_end(result.company, as_of), result.summary,
+                [f for f in result.flags if f not in ("CRUDE_ONLY", "RESOLVE_DATE_PROXY")])]
+    by_ticker = {p.ticker: p for p in result.peers}
+    for ticker in configured:
+        if ticker in by_ticker:
+            p = by_ticker[ticker]
+            rows.append(row(ticker, p.period_end.isoformat(), p.summary, p.flags))
+        else:
+            rows.append({"Company": ticker, "Period end": "-", "Breach probability": NA,
+                         "Breakeven WTI, hold / hike": NA, "Coverage P50 / P90": NA, "Liquidity cover": NA,
+                         "Flags": "no result (missing inputs, or peers not requested)"})
+    return rows
+
+
+def peers_page() -> None:
+    st.title("Peers")
+    st.caption("Same question, fuel curve and Fed odds; each airline's own financials and baseline WTI. "
+               "Margins wait for lane B's margin helper.")
+    result = last_run()
+    if result is None:
+        st.info("Run a question first on the Run page; its peers appear here.")
+        return
+    try:
+        configured = next((c["peers"] for c in companies() if c["ticker"] == result.company), [])
+    except ApiError:
+        configured = [p.ticker for p in result.peers]
+    st.info(f"As of {result.as_of.astimezone(timezone.utc):%Y-%m-%d %H:%M} UTC · run {result.run_id}")
+    st.dataframe(peer_rows(result, configured), hide_index=True, use_container_width=True)
+
+
+def alert_detail(a: dict) -> str:
+    p = a.get("payload", {})
+    if a["rule"] == "BREACH_FLIP":
+        return f"breach probability {pct(p.get('before'))} -> {pct(p.get('after'))}"
+    if a["rule"] == "DRIVER_MOVE":
+        return f"{p.get('title', p.get('market_id', '?'))} moved {p.get('move_pp', '?')} points"
+    return f"source {p.get('source', '?')} is {p.get('status', '?')}"
+
+
+def alerts_page() -> None:
+    st.title("Alerts")
+    st.caption("Alerts fire when the answer flips (BREACH_FLIP), a driver market jumps (DRIVER_MOVE) or a data "
+               "source is down (DATA_STALE). Undelivered alerts stay here even if Slack failed.")
+    if st.button("Send test alert"):
+        try:
+            client().post("/admin/alerts/test", None)
+            st.success("Test alert delivered to Slack.")
+        except ApiError as e:
+            error_banner(e)
+    try:
+        feed = client().get("/alerts", {"limit": 200})
+    except ApiError as e:
+        error_banner(e)
+        return
+    if not feed:
+        st.info("No alerts yet. For the demo, run `make flip` while `make api` is running.")
+        return
+    st.dataframe([{
+        "Time (UTC)": a["ts"].replace("T", " ").replace("Z", ""), "Company": a["company"], "Rule": a["rule"],
+        "Severity": a["severity"], "Delivery": "NOT DELIVERED" if a["status"] == "failed" else a["status"],
+        "Detail": alert_detail(a), "Run": a.get("run_id") or "-",
+    } for a in feed], hide_index=True, use_container_width=True)
+
+
+LABEL_TEXT = {"hand": "hand", "llm": "LLM (unvalidated)"}
+
+
+def exposure_page() -> None:
+    st.title("Exposure map")
+    st.caption("Markets that bear on the decision, by factor. Factors are ordered by total trust. "
+               "LLM-written labels are not validated; hand labels are.")
+    try:
+        views = client().get("/markets")
+    except ApiError as e:
+        error_banner(e)
+        return
+    views = [v for v in views if v.get("label") and v["label"].get("relevant")]
+    if not views:
+        st.info("No markets are labeled yet. Run `make ingest` with `make api` running.")
+        return
+    weight: dict[str, float] = {}
+    for v in views:
+        weight[v["label"]["factor"]] = weight.get(v["label"]["factor"], 0.0) + ((v.get("trust") or {}).get("score") or 0.0)
+    views.sort(key=lambda v: (-weight[v["label"]["factor"]], -((v.get("trust") or {}).get("score") or 0.0)))
+    st.dataframe([{
+        "Factor": v["label"]["factor"], "Market": v["meta"]["title"], "Venue": v["meta"]["venue"],
+        "YES means": f"{v['label']['factor']} {v['label']['yes_moves_factor']}",
+        "Mid": num((v.get("trust") or {}).get("mid")), "Trust": num((v.get("trust") or {}).get("score")),
+        "Stale": "yes" if v.get("stale") else "no", "Label": LABEL_TEXT.get(v["label"]["label_source"], "?"),
+    } for v in views], hide_index=True, use_container_width=True)
+
+
+REPLAY_FIRST_DAY = date(2026, 7, 1)
+REPLAY_DEFAULT_DAY = date(2026, 7, 10)  # June-quarter release; the demo replay (CLAUDE.md section 11)
+REPLAY_TIME_UTC = clock_time(20, 0)     # after the US close, so that day's filings and quotes are visible
+
+
+def replay_page() -> None:
+    st.title("Replay")
+    st.caption("Run the same question as of an earlier time. Only data visible then is used; "
+               "backfilled quotes have capped trust and the run says so (BACKFILL_INPUTS).")
+    try:
+        tickers = [c["ticker"] for c in companies()]
+    except ApiError:
+        tickers = ["DAL"]
+    today = datetime.now(timezone.utc).date()
+    ticker = st.selectbox("Company", tickers, key="replay_ticker")
+    day = st.slider("As of (UTC date)", min_value=REPLAY_FIRST_DAY, max_value=max(today, REPLAY_DEFAULT_DAY),
+                    value=REPLAY_DEFAULT_DAY, format="YYYY-MM-DD")
+    as_of = min(datetime.combine(day, REPLAY_TIME_UTC, tzinfo=timezone.utc), datetime.now(timezone.utc))
+    st.warning(f"Replay as of {as_of:%Y-%m-%d %H:%M} UTC: later data is invisible to this run.")
+    if not st.button("Replay"):
+        return
+    body = {"ticker": ticker, "as_of": as_of.isoformat().replace("+00:00", "Z"), "note_size_usd_m": 1000.0,
+            "tenor_years": 7, "coupon_spread_bp": 150.0, "coverage_threshold": 3.0, "fuel_passthrough": 1.0,
+            "include_peers": True}
+    result = submit(body)
+    if result is not None:
+        show_result(await_brief(result))
+
+
+def run_page() -> None:
     st.title("Market-implied scenario run")
     st.caption("A conditional answer given market-implied odds and stated assumptions. Not a forecast or trading signal.")
-    health_banner()
-
     body = run_form()
     result = submit(body) if body else None
+    if result is not None:
+        result = await_brief(result)
     if result is None and body is None and st.session_state.get("run_id"):
         try:
             result = RunResult.model_validate(client().get(f"/runs/{st.session_state['run_id']}"))
@@ -179,6 +350,17 @@ def main() -> None:
             error_banner(e)
     if result is not None:
         show_result(result)
+
+
+PAGES = {"Run": run_page, "Exposure map": exposure_page, "Peers": peers_page, "Alerts": alerts_page,
+         "Replay": replay_page}
+
+
+def main() -> None:
+    st.set_page_config(page_title="AirScen", layout="wide")
+    page = st.sidebar.radio("Page", list(PAGES))
+    health_banner()
+    PAGES[page]()
 
 
 if __name__ == "__main__":

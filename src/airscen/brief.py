@@ -6,9 +6,13 @@ brief always exists even when every LLM provider is down (DD-6).
 
 from __future__ import annotations
 
+import hashlib
+import json
 import math
 import re
+from collections.abc import Sequence
 from datetime import date, datetime, timezone
+from typing import Any
 
 from airscen.types import RunResult
 
@@ -113,8 +117,57 @@ def template_brief(result: RunResult) -> str:
     return "\n".join(out) + "\n"
 
 
-def llm_brief(result, llm):
-    raise NotImplementedError  # C9
+MAX_WORDS = 400
+BRIEF_SYSTEM = """You write a short credit brief for a corporate treasury or credit reader.
+The user message is JSON with a scenario run ("run") and the company facts it used ("facts").
+Rules:
+- Markdown, at most 400 words.
+- Use only numbers that appear in the JSON. Do not compute, estimate or invent any other number.
+- After a number taken from a fact, cite its id in brackets, for example [F3].
+- Answer the question first: can the company service the new note, and how likely is coverage to fall below the threshold.
+- State every flag and these assumptions: crude only (no jet crack spread), the WTI resolve date stands in for the quarter,
+  fuel and rate states are treated as independent.
+- Say plainly that this is a conditional answer given market-implied odds, not a forecast and not investment advice."""
+
+
+def llm_brief(result: RunResult, llm: Any, facts: Sequence[Any] = ()) -> str:
+    """Ask the LLM for a brief (task write_brief). LLMError propagates; the caller decides the status."""
+    user = json.dumps(_brief_input(result, facts), sort_keys=True, default=str)
+    md = llm.complete_text("write_brief", BRIEF_SYSTEM, user, cache_key=_cache_key(user))
+    return md.strip()
+
+
+def brief_problems(md: str, result: RunResult, facts: Sequence[Any] = ()) -> list[str]:
+    """Why an LLM brief must be rejected; empty means it may replace the template."""
+    problems = []
+    words = len(md.split())
+    if words > MAX_WORDS:
+        problems.append(f"{words} words, over the {MAX_WORDS}-word limit")
+    bad = _unsupported_numbers(md, result, facts)
+    if bad:
+        problems.append("numbers not in the input: " + ", ".join(bad))
+    return problems
+
+
+def _brief_input(result: RunResult, facts: Sequence[Any]) -> dict:
+    return {
+        # run_id, created_at and data_version differ on every run; leaving them out lets the same question
+        # hit the LLM cache (make warm, then LLM_MODE=cache_only).
+        "run": result.model_dump(mode="json", exclude={"brief", "run_id", "created_at", "data_version"}),
+        "facts": [
+            {"id": f"F{i}", "metric": f.metric.value, "value": f.value, "unit": f.unit, "basis": f.basis.value,
+             "period_end": f.period_end.isoformat(), "source_url": f.source_url}
+            for i, f in enumerate(_ordered(facts), start=1)
+        ],
+    }
+
+
+def _ordered(facts: Sequence[Any]) -> list[Any]:
+    return sorted(facts, key=lambda f: (f.metric.value, f.basis.value))
+
+
+def _cache_key(user: str) -> str:
+    return hashlib.sha256(f"write_brief|{user}".encode()).hexdigest()
 
 
 # ---- number check ----
@@ -128,17 +181,21 @@ _NUMBER = re.compile(r"(?<![\w.])(?<![A-Za-z]-)(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d+
 _UNITS = {"", "x", "b", "bn", "m", "mn", "k", "bp", "pp"}
 
 
-def check_numbers(md: str, result: RunResult) -> bool:
-    """True if every number in `md` is some number in `result`, at the precision written.
+def check_numbers(md: str, result: RunResult, facts: Sequence[Any] = ()) -> bool:
+    """True if every number in `md` is some number in `result` (or in `facts`), at the precision written.
 
     A value v also matches as a percentage (v * 100, when |v| <= 1) and in billions
-    (v / 1000, when |v| >= 100). Dates must be dates in the run. Signs are ignored.
+    (v / 1000, when |v| >= 100). Dates must be dates in the input. Signs are ignored.
     """
-    return not _unsupported_numbers(md, result)
+    return not _unsupported_numbers(md, result, facts)
 
 
-def _unsupported_numbers(md: str, result: RunResult) -> list[str]:
+def _unsupported_numbers(md: str, result: RunResult, facts: Sequence[Any] = ()) -> list[str]:
     values, dates = _input_values(result)
+    for f in facts:
+        values.append(float(f.value))
+        dates.add(f.period_end.isoformat())
+        values.append(float(f.period_end.year))
     candidates = set(values)
     candidates |= {v * 100 for v in values if abs(v) <= 1}
     candidates |= {v / 1000 for v in values if abs(v) >= 100}

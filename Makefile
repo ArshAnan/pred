@@ -23,7 +23,7 @@ UI_PORT ?= 8501
 PYTEST_ARGS ?=
 
 .DEFAULT_GOAL := help
-.PHONY: help setup api ui test ingest backfill warm eval
+.PHONY: help setup api ui test ingest backfill flip warm eval
 
 help:
 	@echo Targets:
@@ -31,10 +31,11 @@ help:
 	@echo   api       start the API server on $(API_HOST):$(API_PORT), one worker
 	@echo   ui        start Streamlit on $(UI_HOST):$(UI_PORT)
 	@echo   test      run pytest, extra flags via PYTEST_ARGS=...
-	@echo   ingest    placeholder until C7
-	@echo   backfill  placeholder until C7, usage: make backfill WINDOW=2026-07-01..2026-07-12
-	@echo   warm      placeholder until C14
-	@echo   eval      placeholder until C14
+	@echo   ingest    fetch markets, filings and macro through the API, needs make api running
+	@echo   backfill  backfill quotes for a replay window, usage: make backfill WINDOW=2026-07-01..2026-07-12
+	@echo   flip      demo: force a BREACH_FLIP alert to Slack, needs make api running
+	@echo   warm      fill the LLM cache for the demo questions, optional AS_OF=2026-10-11T14:00:00Z
+	@echo   eval      print the five-check evaluation report
 
 setup:
 	$(PYTHON) -m venv .venv
@@ -43,8 +44,9 @@ setup:
 	$(if $(wildcard .env),@echo .env already exists - left unchanged,$(if $(wildcard .env.example),$(PYTHON) -c "import shutil; shutil.copyfile('.env.example', '.env')",@echo .env.example not found yet - skipping .env))
 
 # DD-2: exactly one uvicorn worker; it also hosts the background worker loop.
+# airscen.main wires every lane into the app (airscen.api:app alone runs without the worker).
 api:
-	$(PY) -m uvicorn airscen.api:app --host $(API_HOST) --port $(API_PORT) --workers 1
+	$(PY) -m uvicorn airscen.main:app --host $(API_HOST) --port $(API_PORT) --workers 1
 
 ui:
 	$(PY) -m streamlit run app.py --server.address $(UI_HOST) --server.port $(UI_PORT)
@@ -52,15 +54,21 @@ ui:
 test:
 	$(PY) -m pytest $(PYTEST_ARGS)
 
-# Placeholders: fail loudly so nobody mistakes them for a working step.
+# Both need `make api` running; they start a job through POST /admin/ingest and wait for it.
 ingest:
-	$(error make ingest: not implemented yet - wired to POST /admin/ingest in C7)
+	$(PY) -m airscen.cli ingest
 
 backfill:
-	$(error make backfill: not implemented yet - wired to POST /admin/ingest in C7)
+	$(if $(WINDOW),$(PY) -m airscen.cli backfill --window $(WINDOW),$(error usage: make backfill WINDOW=2026-07-01..2026-07-12))
 
+# Demo: force a BREACH_FLIP through the real alert state machine (needs make api running).
+flip:
+	$(PY) -m airscen.cli flip
+
+# Fill llm_cache for the demo questions (needs make api running and a live LLM), then set LLM_MODE=cache_only.
 warm:
-	$(error make warm: not implemented yet - wired in C14)
+	$(PY) -m airscen.cli warm$(if $(AS_OF), --as-of $(AS_OF))
 
+# Lane B's five-check evaluation report.
 eval:
-	$(error make eval: not implemented yet - wired to lane B's eval module in C14)
+	$(PY) -m airscen.eval
