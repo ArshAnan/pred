@@ -1,8 +1,11 @@
-"""LLM provider chain, cache, and budget guard (LLD section 7).
+"""LLM provider chain.
 
-Does not open the database. Pass Repository.cache_get and Repository.cache_put
-in; this module does not import the store. Until that store exists, tests use
-an in-memory cache with the same two call shapes.
+Does not open the database and does not import the store. Pass
+Repository.cache_get and Repository.cache_put in.
+
+The cache key is sha256(task, prompt_version, input). The cache_key
+argument on complete_json and complete_text is accepted for the
+contract and is not used as the lookup key.
 """
 
 from __future__ import annotations
@@ -20,39 +23,34 @@ import httpx
 
 from airscen.types import LLMError
 
-log = logging.getLogger("airscen.llm")
+logger = logging.getLogger("airscen.llm")
 
 PROMPT_VERSION = "1"
-DEFAULT_CHAIN = ("snowflake", "gemini", "ollama")
-DEFAULT_MODELS = {
+_OUTPUT_TOKENS = {"extract_metrics": 2000, "label_market": 400, "write_brief": 1200}
+# gemini-3.8-flash is the id Google tells new keys to use. On 2026-10-10 it
+# returned 503, and gemini-3.5-flash answered on the OpenAI-compatible endpoint.
+_DEFAULT_MODELS = {
     "snowflake": "claude-haiku-4-5",
-    "gemini": "gemini-3.8-flash",
+    "gemini": "gemini-3.5-flash",
     "ollama": "llama3.1",
 }
-OUTPUT_TOKENS = {"extract_metrics": 2_000, "label_market": 400, "write_brief": 1_200}
-_HOUR = timedelta(hours=1)
+_PLACEHOLDER_MODELS = {
+    "<current Flash model id>": "gemini-3.5-flash",
+    "<installed instruct model>": "llama3.1",
+}
 
 
-class Completion:
-    """One provider response. Tests and the HTTP adapters both return this."""
-
-    def __init__(self, text: str, model: str, tokens_in: int, tokens_out: int):
-        self.text = text
-        self.model = model
-        self.tokens_in = tokens_in
-        self.tokens_out = tokens_out
-
-
-class ProviderCallError(Exception):
-    """A provider attempt failed before a usable completion.
-
-    status None is a connection or transport failure. 429, 402 and 5xx move
-    the chain to the next provider; any other status stops the chain.
-    """
+class _ProviderCallError(Exception):
+    """A provider request failed before a usable body was parsed."""
 
     def __init__(self, message: str, status: int | None = None):
         super().__init__(message)
         self.status = status
+        self.retryable = status is None or status in (402, 429) or status >= 500
+
+
+class _SchemaError(Exception):
+    pass
 
 
 class LLMClient:
@@ -63,43 +61,38 @@ class LLMClient:
         chain: list[str] | None = None,
         mode: Literal["live", "cache_only", "off"] = "live",
         *,
-        providers: Mapping[str, Callable[..., Completion]] | None = None,
+        providers: Mapping[str, Callable[..., tuple[str, int, int]]] | None = None,
         prompt_version: str = PROMPT_VERSION,
         max_calls_per_hour: int = 120,
         max_input_tokens: int = 20_000,
-        now: Callable[[], datetime] | None = None,
         models: Mapping[str, str] | None = None,
+        now: Callable[[], datetime] | None = None,
+        env: Mapping[str, str] | None = None,
+        http_client: httpx.Client | None = None,
     ) -> None:
-        """cache_get(key) and cache_put(entry) match the store methods.
-
-        Keyword-only arguments wire tests and settings. The positional
-        arguments stay the CP0 contract.
-        """
-        self._cache_get = cache_get
-        self._cache_put = cache_put
-        self.chain = list(chain) if chain is not None else _chain_from_env()
+        """cache_get(key) and cache_put(entry) match the store methods."""
+        self.cache_get = cache_get
+        self.cache_put = cache_put
         self.mode = mode
         self.prompt_version = prompt_version
         self.max_calls_per_hour = max_calls_per_hour
         self.max_input_tokens = max_input_tokens
         self._now = now or (lambda: datetime.now(timezone.utc))
-        self.models = _models(models)
-        self._providers = dict(providers) if providers is not None else _live_providers(self.models)
-        self._call_times: list[datetime] = []
-        self.cache_hits = 0
-        self.cache_misses = 0
-        self.last_provider: str | None = None
-
-    @staticmethod
-    def make_cache_key(task: str, prompt_version: str, payload: dict) -> str:
-        """sha256 of task, prompt version and the call input, as hex."""
-        blob = json.dumps(
-            {"task": task, "prompt_version": prompt_version, "input": payload},
-            sort_keys=True,
-            separators=(",", ":"),
-            ensure_ascii=False,
+        self._calls: list[datetime] = []
+        self.http_client = http_client
+        source = env if env is not None else os.environ
+        if chain is None:
+            raw = source.get("LLM_CHAIN", "snowflake,gemini,ollama")
+            chain = [part.strip() for part in raw.split(",") if part.strip()]
+        self.chain = list(chain)
+        self.models = dict(_DEFAULT_MODELS)
+        if models:
+            self.models.update(models)
+        for name, model in list(self.models.items()):
+            self.models[name] = _PLACEHOLDER_MODELS.get(model, model)
+        self.providers = dict(providers) if providers is not None else _live_providers(
+            self.chain, source, self.models, http_client
         )
-        return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
     def complete_json(
         self,
@@ -108,405 +101,304 @@ class LLMClient:
         user: str,
         schema: dict,
         cache_key: str,
-    ) -> dict | list:
-        """Return a JSON object, or a list when the schema type is array.
-
-        The CP0 stub annotated this as dict. extract_metrics is a JSON list,
-        so a list is returned only for an array schema.
-        """
-        payload = {"system": system, "user": user, "schema": schema}
-        value = self._complete("json", task, system, user, schema, payload, cache_key)
-        if isinstance(value, (dict, list)):
-            return value
-        raise LLMError(
-            "Cached or model JSON was not an object or a list",
-            code="E_LLM_BAD_OUTPUT",
-            details={"task": task},
-        )
+    ) -> dict:
+        return self._complete(task, system, user, schema, cache_key)
 
     def complete_text(self, task: str, system: str, user: str, cache_key: str) -> str:
-        payload = {"system": system, "user": user}
-        value = self._complete("text", task, system, user, None, payload, cache_key)
-        if not isinstance(value, str):
-            raise LLMError(
-                "Cached or model output was not text",
-                code="E_LLM_BAD_OUTPUT",
-                details={"task": task},
-            )
-        return value
+        return self._complete(task, system, user, None, cache_key)
 
-    @property
-    def calls_last_hour(self) -> int:
-        cutoff = self._now() - _HOUR
-        return sum(1 for ts in self._call_times if ts > cutoff)
-
-    def _complete(
-        self,
-        kind: Literal["json", "text"],
+    @staticmethod
+    def make_cache_key(
         task: str,
+        prompt_version: str,
         system: str,
         user: str,
         schema: dict | None,
-        payload: dict,
-        cache_key: str,
-    ) -> Any:
+    ) -> str:
+        payload: dict[str, Any] = {
+            "task": task,
+            "prompt_version": prompt_version,
+            "input": {"system": system, "user": user},
+        }
+        if schema is not None:
+            payload["input"]["schema"] = schema
+        raw = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+        return hashlib.sha256(raw.encode()).hexdigest()
+
+    def _complete(self, task: str, system: str, user: str, schema: dict | None, cache_key: str):
+        del cache_key
         if self.mode == "off":
-            raise LLMError("LLM mode is off", code="E_LLM_UNAVAILABLE", details={"mode": "off"})
-
-        key = self.make_cache_key(task, self.prompt_version, payload)
-        if cache_key != key:
-            log.debug(
-                "cache_key argument does not match sha256(task, prompt_version, input); using the computed key"
-            )
-        cached = self._read_cache(key, kind)
-        if cached is not None:
-            value, row = cached
-            self.cache_hits += 1
-            self.last_provider = row.get("provider")
-            self._log(
-                task=task,
-                provider=row.get("provider"),
-                model=row.get("model"),
-                tokens_in=row.get("tokens_in"),
-                tokens_out=row.get("tokens_out"),
-                latency_ms=0,
-                cache_hit=True,
-            )
-            return value
-
-        self.cache_misses += 1
+            raise LLMError("LLM mode is off", code="E_LLM_UNAVAILABLE")
+        key = self.make_cache_key(task, self.prompt_version, system, user, schema)
         if self.mode == "cache_only":
-            raise LLMError(
-                "No cached LLM response for this input",
-                code="E_LLM_UNAVAILABLE",
-                details={"mode": "cache_only", "task": task},
-            )
+            hit = self.cache_get(key)
+            if hit is None:
+                raise LLMError("cache miss", code="E_LLM_UNAVAILABLE")
+            self._log(task, None, None, None, None, cache_hit=True)
+            return json.loads(hit["response_json"])
+        hit = self.cache_get(key)
+        if hit is not None:
+            self._log(task, hit.get("provider"), hit.get("model"), hit.get("tokens_in"), hit.get("tokens_out"), True)
+            return json.loads(hit["response_json"])
 
-        saw_bad_output = False
-        last_message = "No LLM provider succeeded"
+        saw_bad = False
+        last_message = "no provider accepted the request"
         for name in self.chain:
-            provider = self._providers.get(name)
+            provider = self.providers.get(name)
+            model = self.models.get(name, "")
             if provider is None:
-                last_message = f"Provider {name} is not configured"
+                last_message = f"{name} is not configured"
                 continue
-            model = self.models.get(name, name)
-            try:
-                completion = self._call(name, provider, task, system, user, schema, model)
-            except ProviderCallError as exc:
-                last_message = str(exc)
-                if _moves_on(exc):
-                    continue
-                raise LLMError(
-                    last_message,
-                    code="E_LLM_UNAVAILABLE",
-                    details={"provider": name, "status": exc.status},
-                ) from exc
-            if kind == "text":
-                self._store(key, task, name, completion, completion.text)
-                return completion.text
-            parsed, error = _decode(completion.text, schema or {})
-            if error is None:
-                self._store(key, task, name, completion, parsed)
-                return parsed
-            saw_bad_output = True
-            last_message = error
-            repair_user = (
-                f"{user}\n\nThe previous response failed validation: {error}\n"
-                "Reply with only JSON that matches the schema.\n"
-                f"Previous response:\n{completion.text}"
-            )
-            try:
-                repaired = self._call(name, provider, task, system, repair_user, schema, model)
-            except ProviderCallError as exc:
-                last_message = str(exc)
-                if _moves_on(exc):
-                    continue
-                raise LLMError(
-                    last_message,
-                    code="E_LLM_UNAVAILABLE",
-                    details={"provider": name, "status": exc.status},
-                ) from exc
-            parsed, error = _decode(repaired.text, schema or {})
-            if error is None:
-                self._store(key, task, name, repaired, parsed)
-                return parsed
-            saw_bad_output = True
-            last_message = error
+            prompt = user
+            for attempt in (0, 1):
+                self._check_budget(system, prompt)
+                started = time.perf_counter()
+                try:
+                    text, tokens_in, tokens_out = provider(
+                        system,
+                        prompt,
+                        schema,
+                        temperature=0,
+                        max_tokens=_OUTPUT_TOKENS.get(task, 1200),
+                        model=model,
+                        json_schema=schema is not None and name == "snowflake",
+                    )
+                except _ProviderCallError as exc:
+                    self._log(task, name, model, None, None, False, latency_ms=_elapsed(started), error=str(exc))
+                    last_message = str(exc)
+                    if exc.retryable:
+                        break
+                    raise LLMError(str(exc), code="E_LLM_UNAVAILABLE", details={"provider": name, "status": exc.status}) from exc
+                self._calls.append(self._now())
+                if schema is None:
+                    self._store(key, task, name, model, text, tokens_in, tokens_out)
+                    self._log(task, name, model, tokens_in, tokens_out, False, latency_ms=_elapsed(started))
+                    return text
+                try:
+                    value = _parse_json(text, schema)
+                except _SchemaError as exc:
+                    saw_bad = True
+                    last_message = str(exc)
+                    self._log(task, name, model, tokens_in, tokens_out, False, latency_ms=_elapsed(started), error=str(exc))
+                    if attempt == 0:
+                        prompt = (
+                            "The previous response failed validation: "
+                            + str(exc)
+                            + "\n"
+                            + text
+                            + "\nReturn only the corrected JSON."
+                        )
+                        continue
+                    break
+                self._store(key, task, name, model, value, tokens_in, tokens_out)
+                self._log(task, name, model, tokens_in, tokens_out, False, latency_ms=_elapsed(started))
+                return value
+        code = "E_LLM_BAD_OUTPUT" if saw_bad else "E_LLM_UNAVAILABLE"
+        raise LLMError(last_message, code=code)
 
-        code = "E_LLM_BAD_OUTPUT" if saw_bad_output else "E_LLM_UNAVAILABLE"
-        raise LLMError(last_message, code=code, details={"task": task, "chain": list(self.chain)})
-
-    def _call(self, name, provider, task, system, user, schema, model) -> Completion:
-        tokens = _estimate_tokens(system, user)
+    def _check_budget(self, system: str, user: str) -> None:
+        cutoff = self._now() - timedelta(hours=1)
+        self._calls = [ts for ts in self._calls if ts > cutoff]
+        if len(self._calls) >= self.max_calls_per_hour:
+            raise LLMError("hourly call budget exceeded", code="E_LLM_BUDGET")
+        tokens = (len(system) + len(user) + 3) // 4
         if tokens > self.max_input_tokens:
             raise LLMError(
-                f"Input is about {tokens} tokens, above the {self.max_input_tokens} token limit",
+                "input token budget exceeded",
                 code="E_LLM_BUDGET",
-                details={"max_input_tokens": self.max_input_tokens, "tokens": tokens},
+                details={"tokens_in": tokens},
             )
-        self._reserve_call()
-        started = time.perf_counter()
-        try:
-            completion = provider(
-                task=task,
-                system=system,
-                user=user,
-                schema=schema,
-                temperature=0,
-                model=model,
-                max_tokens=OUTPUT_TOKENS.get(task),
-            )
-        except ProviderCallError as exc:
-            self._log(
-                task=task,
-                provider=name,
-                model=model,
-                tokens_in=None,
-                tokens_out=None,
-                latency_ms=_latency_ms(started),
-                cache_hit=False,
-                error=str(exc),
-            )
-            raise
-        if not isinstance(completion, Completion):
-            completion = Completion(
-                text=str(getattr(completion, "text", completion)),
-                model=str(getattr(completion, "model", model)),
-                tokens_in=int(getattr(completion, "tokens_in", tokens)),
-                tokens_out=int(getattr(completion, "tokens_out", 0)),
-            )
-        self.last_provider = name
-        self._log(
-            task=task,
-            provider=name,
-            model=completion.model,
-            tokens_in=completion.tokens_in,
-            tokens_out=completion.tokens_out,
-            latency_ms=_latency_ms(started),
-            cache_hit=False,
+
+    def _store(self, key, task, provider, model, value, tokens_in, tokens_out) -> None:
+        self.cache_put(
+            {
+                "cache_key": key,
+                "task": task,
+                "provider": provider,
+                "model": model,
+                "response_json": json.dumps(value),
+                "tokens_in": tokens_in,
+                "tokens_out": tokens_out,
+                "created_at": self._now().astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            }
         )
-        return completion
 
-    def _reserve_call(self) -> None:
-        now = self._now()
-        if now.tzinfo is None:
-            now = now.replace(tzinfo=timezone.utc)
-        cutoff = now - _HOUR
-        self._call_times = [ts for ts in self._call_times if ts > cutoff]
-        if len(self._call_times) >= self.max_calls_per_hour:
-            raise LLMError(
-                f"LLM budget exceeded: {self.max_calls_per_hour} calls in the last hour",
-                code="E_LLM_BUDGET",
-                details={"max_calls_per_hour": self.max_calls_per_hour},
-            )
-        self._call_times.append(now)
-
-    def _read_cache(self, key: str, kind: str) -> tuple[Any, dict] | None:
-        row = self._cache_get(key)
-        if not row:
-            return None
-        raw = row.get("response_json")
-        try:
-            value = json.loads(raw) if isinstance(raw, str) else raw
-        except (TypeError, ValueError):
-            return None
-        if kind == "text" and isinstance(value, str):
-            return value, row
-        if kind == "json" and isinstance(value, (dict, list)):
-            return value, row
-        return None
-
-    def _store(self, key: str, task: str, provider: str, completion: Completion, value: Any) -> None:
-        created = self._now()
-        if created.tzinfo is None:
-            created = created.replace(tzinfo=timezone.utc)
-        self._cache_put({
-            "cache_key": key,
+    def _log(self, task, provider, model, tokens_in, tokens_out, cache_hit, latency_ms=None, error=None) -> None:
+        record = {
+            "component": "llm",
+            "event": "completion",
             "task": task,
             "provider": provider,
-            "model": completion.model,
-            "response_json": json.dumps(value, ensure_ascii=False),
-            "tokens_in": completion.tokens_in,
-            "tokens_out": completion.tokens_out,
-            "created_at": created.astimezone(timezone.utc).isoformat().replace("+00:00", "Z"),
-        })
-
-    def _log(self, **fields: Any) -> None:
-        now = self._now()
-        if now.tzinfo is None:
-            now = now.replace(tzinfo=timezone.utc)
-        line = {
-            "ts": now.astimezone(timezone.utc).isoformat().replace("+00:00", "Z"),
-            "level": "info",
-            "component": "llm",
-            "event": "complete",
-            **fields,
+            "model": model,
+            "tokens_in": tokens_in,
+            "tokens_out": tokens_out,
+            "latency_ms": latency_ms,
+            "cache_hit": cache_hit,
         }
-        log.info(json.dumps(line, default=str))
+        if error:
+            record["error"] = error
+        logger.info(json.dumps(record))
 
 
-def _chain_from_env() -> list[str]:
-    raw = os.environ.get("LLM_CHAIN", ",".join(DEFAULT_CHAIN))
-    names = [part.strip() for part in raw.split(",") if part.strip()]
-    return names or list(DEFAULT_CHAIN)
-
-
-def _models(override: Mapping[str, str] | None) -> dict[str, str]:
-    models = dict(DEFAULT_MODELS)
-    for name, value in (override or {}).items():
-        if value and not str(value).startswith("<"):
-            models[name] = value
-    return models
-
-
-def _estimate_tokens(system: str, user: str) -> int:
-    return max(1, (len(system) + len(user) + 3) // 4)
-
-
-def _latency_ms(started: float) -> int:
+def _elapsed(started: float) -> int:
     return int((time.perf_counter() - started) * 1000)
 
 
-def _moves_on(exc: ProviderCallError) -> bool:
-    status = exc.status
-    return status is None or status in {402, 429} or status >= 500
-
-
-def _decode(text: str, schema: dict) -> tuple[Any, str | None]:
+def _parse_json(text: str, schema: dict):
+    stripped = text.strip()
+    if stripped.startswith("```"):
+        stripped = stripped.removeprefix("```json").removeprefix("```").strip()
+        if stripped.endswith("```"):
+            stripped = stripped[: stripped.rfind("```")].strip()
     try:
-        value = json.loads(_strip_fence(text))
-    except (TypeError, ValueError) as exc:
-        return None, f"invalid JSON: {exc}"
-    error = _schema_error(schema, value)
-    if error:
-        return None, error
-    return value, None
+        value = json.loads(stripped)
+    except json.JSONDecodeError as exc:
+        raise _SchemaError("response is not valid JSON") from exc
+    _validate(value, schema, "$")
+    return value
 
 
-def _strip_fence(text: str) -> str:
-    raw = text.strip()
-    if not raw.startswith("```"):
-        return raw
-    lines = raw.splitlines()
-    if lines and lines[0].startswith("```"):
-        lines = lines[1:]
-    if lines and lines[-1].strip() == "```":
-        lines = lines[:-1]
-    return "\n".join(lines).strip()
-
-
-def _schema_error(schema: dict, value: Any) -> str | None:
-    if not schema:
-        return None
-    expected = schema.get("type")
-    if expected and not _type_ok(expected, value):
-        return f"expected {expected}"
+def _validate(value, schema: dict, path: str) -> None:
+    if not isinstance(schema, dict):
+        return
     if "enum" in schema and value not in schema["enum"]:
-        return "value not in enum"
-    if isinstance(value, dict):
+        raise _SchemaError(f"{path} is not one of {schema['enum']}")
+    declared = schema.get("type")
+    types = declared if isinstance(declared, list) else [declared] if declared else []
+    if types and not any(_matches_type(value, name) for name in types):
+        raise _SchemaError(f"{path} does not match type {declared}")
+    if "object" in types or (not types and isinstance(value, dict) and "properties" in schema):
+        if not isinstance(value, dict):
+            raise _SchemaError(f"{path} is not an object")
         required = schema.get("required") or []
-        missing = [key for key in required if key not in value]
-        if missing:
-            return f"missing {', '.join(missing)}"
-        properties = schema.get("properties") or {}
-        for key, child in properties.items():
-            if key in value:
-                error = _schema_error(child, value[key])
-                if error:
-                    return f"{key}: {error}"
-        if schema.get("additionalProperties") is False:
-            extra = [key for key in value if key not in properties]
-            if extra:
-                return f"unexpected {', '.join(extra)}"
-    if isinstance(value, list) and "items" in schema:
-        for index, item in enumerate(value):
-            error = _schema_error(schema["items"], item)
-            if error:
-                return f"[{index}]: {error}"
-    if isinstance(value, (int, float)) and not isinstance(value, bool):
-        if "minimum" in schema and value < schema["minimum"]:
-            return "below minimum"
-        if "maximum" in schema and value > schema["maximum"]:
-            return "above maximum"
-    return None
+        props = schema.get("properties") or {}
+        additional = schema.get("additionalProperties", True)
+        for key in required:
+            if key not in value:
+                raise _SchemaError(f"{path}.{key} is required")
+        for key, item in value.items():
+            if key in props:
+                _validate(item, props[key], f"{path}.{key}")
+            elif additional is False:
+                raise _SchemaError(f"{path}.{key} is not allowed")
+            elif isinstance(additional, dict):
+                _validate(item, additional, f"{path}.{key}")
+    if "array" in types or (not types and isinstance(value, list) and "items" in schema):
+        if not isinstance(value, list):
+            raise _SchemaError(f"{path} is not an array")
+        items = schema.get("items")
+        if isinstance(items, dict):
+            for index, item in enumerate(value):
+                _validate(item, items, f"{path}[{index}]")
 
 
-def _type_ok(expected: str, value: Any) -> bool:
-    if expected == "object":
+def _matches_type(value, name: str) -> bool:
+    if name == "object":
         return isinstance(value, dict)
-    if expected == "array":
+    if name == "array":
         return isinstance(value, list)
-    if expected == "string":
+    if name == "string":
         return isinstance(value, str)
-    if expected == "boolean":
-        return isinstance(value, bool)
-    if expected == "integer":
-        return isinstance(value, int) and not isinstance(value, bool)
-    if expected == "number":
+    if name == "number":
         return isinstance(value, (int, float)) and not isinstance(value, bool)
-    if expected == "null":
+    if name == "integer":
+        return isinstance(value, int) and not isinstance(value, bool)
+    if name == "boolean":
+        return isinstance(value, bool)
+    if name == "null":
         return value is None
     return True
 
 
-def _live_providers(models: Mapping[str, str]) -> dict[str, Callable[..., Completion]]:
-    client = httpx.Client(timeout=httpx.Timeout(30.0, connect=3.0))
-    account = os.environ.get("SNOWFLAKE_ACCOUNT", "").strip()
-    pat = os.environ.get("SNOWFLAKE_PAT", "").strip()
-    gemini_key = os.environ.get("GEMINI_API_KEY", "").strip()
-    ollama = (os.environ.get("OLLAMA_HOST") or "http://127.0.0.1:11434").rstrip("/")
-    providers: dict[str, Callable[..., Completion]] = {}
-    if account and pat:
-        url = f"https://{account}.snowflakecomputing.com/api/v2/cortex/v1/chat/completions"
-        providers["snowflake"] = _chat_provider(
-            client, url, {"Authorization": f"Bearer {pat}"}, models["snowflake"],
-        )
-    if gemini_key:
-        url = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
-        providers["gemini"] = _chat_provider(
-            client, url, {"Authorization": f"Bearer {gemini_key}"}, models["gemini"],
-        )
-    providers["ollama"] = _chat_provider(client, f"{ollama}/v1/chat/completions", {}, models["ollama"])
-    return providers
+def _live_providers(chain, env: Mapping[str, str], models: Mapping[str, str], client):
+    built = {}
+    for name in chain:
+        if name == "snowflake":
+            built[name] = _http_provider(
+                _snowflake_url(env.get("SNOWFLAKE_ACCOUNT", "")),
+                env.get("SNOWFLAKE_PAT", ""),
+                {"Authorization": f"Bearer {env.get('SNOWFLAKE_PAT', '')}", "Accept": "application/json"},
+                client,
+                missing="missing snowflake credentials",
+                token_field="max_completion_tokens",
+            )
+        elif name == "gemini":
+            built[name] = _http_provider(
+                "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+                env.get("GEMINI_API_KEY", ""),
+                {"Authorization": f"Bearer {env.get('GEMINI_API_KEY', '')}", "Accept": "application/json"},
+                client,
+                missing="missing gemini credentials",
+            )
+        elif name == "ollama":
+            host = (env.get("OLLAMA_HOST") or "http://127.0.0.1:11434").rstrip("/")
+            built[name] = _http_provider(
+                f"{host}/v1/chat/completions",
+                "local",
+                {"Accept": "application/json"},
+                client,
+                missing="missing ollama host",
+            )
+        else:
+            built[name] = _missing_provider(f"unknown provider {name}")
+    return built
 
 
-def _chat_provider(client: httpx.Client, url: str, headers: dict[str, str], default_model: str):
-    def complete(*, task, system, user, schema, temperature, model, max_tokens) -> Completion:
+def _snowflake_url(account: str) -> str:
+    host = account.strip().removeprefix("https://").removesuffix(".snowflakecomputing.com").strip("/").lower()
+    if not host:
+        return ""
+    return f"https://{host}.snowflakecomputing.com/api/v2/cortex/v1/chat/completions"
+
+
+def _missing_provider(message: str):
+    def call(system, user, schema, *, temperature, max_tokens, model, json_schema):
+        del system, user, schema, temperature, max_tokens, model, json_schema
+        raise _ProviderCallError(message, status=None)
+
+    return call
+
+
+def _http_provider(url: str, secret: str, headers: dict, client, *, missing: str, token_field: str = "max_tokens"):
+    if not url or not secret:
+        return _missing_provider(missing)
+
+    def call(system, user, schema, *, temperature, max_tokens, model, json_schema):
         body: dict[str, Any] = {
-            "model": model or default_model,
+            "model": model,
             "temperature": temperature,
+            token_field: max_tokens,
             "messages": [
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ],
         }
-        if max_tokens:
-            body["max_tokens"] = max_tokens
-        if schema is not None:
+        if json_schema and schema is not None:
             body["response_format"] = {
                 "type": "json_schema",
-                "json_schema": {"name": task or "airscen", "schema": schema},
+                "json_schema": {"name": "response", "schema": schema, "strict": True},
             }
+        return _post_chat(url, {**headers, "Content-Type": "application/json"}, body, client)
+
+    return call
+
+
+def _post_chat(url: str, headers: dict, body: dict, client: httpx.Client | None = None):
+    owns = client is None
+    client = client or httpx.Client(timeout=httpx.Timeout(30.0, connect=3.0))
+    try:
         try:
             response = client.post(url, headers=headers, json=body)
-        except httpx.TimeoutException as exc:
-            raise ProviderCallError(str(exc), status=None) from exc
-        except httpx.TransportError as exc:
-            raise ProviderCallError(str(exc), status=None) from exc
-        if response.status_code >= 400:
-            raise ProviderCallError(response.text[:500], status=response.status_code)
-        try:
-            data = response.json()
-            content = data["choices"][0]["message"]["content"]
-        except (ValueError, KeyError, IndexError, TypeError) as exc:
-            raise ProviderCallError(f"missing completion: {exc}", status=None) from exc
-        usage = data.get("usage") or {}
-        text = content if isinstance(content, str) else json.dumps(content)
-        return Completion(
-            text=text,
-            model=str(data.get("model") or model or default_model),
-            tokens_in=int(usage.get("prompt_tokens") or _estimate_tokens(system, user)),
-            tokens_out=int(usage.get("completion_tokens") or max(1, len(text) // 4)),
-        )
-
-    return complete
+        except httpx.HTTPError as exc:
+            raise _ProviderCallError(str(exc), status=None) from exc
+        if response.status_code != 200:
+            raise _ProviderCallError(response.text[:300], status=response.status_code)
+        payload = response.json()
+        if isinstance(payload, list):
+            payload = payload[0]
+        content = ((payload.get("choices") or [{}])[0].get("message") or {}).get("content")
+        usage = payload.get("usage") or {}
+        return content or "", int(usage.get("prompt_tokens") or 0), int(usage.get("completion_tokens") or 0)
+    finally:
+        if owns:
+            client.close()

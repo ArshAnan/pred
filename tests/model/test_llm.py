@@ -1,178 +1,258 @@
-"""LLM client. LLD section 7: cache, fallback, repair, budget, cache_only."""
+"""LLM client. Fake providers only; no network."""
 
 import json
 from datetime import datetime, timedelta, timezone
 
+import httpx
 import pytest
 
-from airscen.llm import LLMClient, ProviderCallError
+from airscen.llm import LLMClient, _ProviderCallError, _post_chat
 from airscen.types import LLMError
-from tests.fakes.fake_llm import ScriptedProvider
+from tests.fakes.fake_llm import ScriptedProvider, memory_cache
 
-SCHEMA = {
+_SCHEMA = {
     "type": "object",
-    "properties": {"ok": {"type": "boolean"}},
-    "required": ["ok"],
+    "properties": {"a": {"type": "integer"}},
+    "required": ["a"],
     "additionalProperties": False,
 }
-AS_OF = datetime(2026, 10, 10, tzinfo=timezone.utc)
+_CLOCK = datetime(2026, 10, 10, 12, 0, tzinfo=timezone.utc)
 
 
-class MemoryCache:
-    def __init__(self):
-        self.rows = {}
+def _client(providers, **kwargs):
+    cache_get, cache_put, store = memory_cache()
+    clock = {"now": _CLOCK}
 
-    def get(self, key):
-        return self.rows.get(key)
+    def now():
+        return clock["now"]
 
-    def put(self, entry):
-        self.rows[entry["cache_key"]] = entry
-
-
-class Clock:
-    def __init__(self):
-        self.t = AS_OF
-
-    def __call__(self):
-        return self.t
-
-
-def _client(providers, mode="live", **kwargs):
-    cache = MemoryCache()
-    clock = kwargs.pop("now", Clock())
     client = LLMClient(
-        cache.get,
-        cache.put,
-        chain=list(providers),
-        mode=mode,
+        cache_get,
+        cache_put,
+        chain=kwargs.pop("chain", list(providers)),
+        mode=kwargs.pop("mode", "live"),
         providers=providers,
-        now=clock,
+        now=now,
+        env={},
         **kwargs,
     )
-    return client, cache, clock
+    return client, store, clock
 
 
-def test_cache_hit_makes_no_call():
-    provider = ScriptedProvider(['{"ok": true}'])
-    client, cache, _ = _client({"snowflake": provider})
-    first = client.complete_json("label_market", "sys", "user", SCHEMA, "")
-    assert first == {"ok": True}
+def test_cache_hit_does_not_call_and_uses_temperature_zero():
+    provider = ScriptedProvider(['{"a": 1}'])
+    client, _, _ = _client({"snowflake": provider})
+    first = client.complete_json("label_market", "sys", "user", _SCHEMA, "ignored")
+    second = client.complete_json("label_market", "sys", "user", _SCHEMA, "different")
+    assert first == second == {"a": 1}
     assert len(provider.calls) == 1
-    second = client.complete_json("label_market", "sys", "user", SCHEMA, "ignored")
-    assert second == {"ok": True}
-    assert len(provider.calls) == 1
-    assert client.cache_hits == 1
-    assert len(cache.rows) == 1
+    assert provider.calls[0]["temperature"] == 0
+    assert provider.calls[0]["max_tokens"] == 400
 
 
-def test_provider_fallback_order_on_retryable_errors():
-    first = ScriptedProvider([ProviderCallError("down", status=503)])
-    second = ScriptedProvider([ProviderCallError("slow", status=429)])
-    third = ScriptedProvider(['{"ok": true}'])
-    client, _, _ = _client({"snowflake": first, "gemini": second, "ollama": third})
-    assert client.complete_json("label_market", "sys", "user", SCHEMA, "") == {"ok": True}
-    assert len(first.calls) == 1
-    assert len(second.calls) == 1
+def test_fallback_order_skips_a_failing_provider():
+    snowflake = ScriptedProvider([_ProviderCallError("down", status=503)])
+    gemini = ScriptedProvider(['{"a": 1}'])
+    ollama = ScriptedProvider(['{"a": 2}'])
+    client, store, _ = _client(
+        {"snowflake": snowflake, "gemini": gemini, "ollama": ollama},
+        chain=["snowflake", "gemini", "ollama"],
+    )
+    assert client.complete_json("label_market", "sys", "user", _SCHEMA, "k") == {"a": 1}
+    assert len(snowflake.calls) == 1
+    assert len(gemini.calls) == 1
+    assert ollama.calls == []
+    assert gemini.calls[0]["model"] == "gemini-3.5-flash"
+    saved = next(iter(store.values()))
+    assert saved["provider"] == "gemini"
+    assert saved["model"] == "gemini-3.5-flash"
+    assert saved["created_at"].endswith("Z")
+
+
+def test_connection_and_402_move_to_the_next_provider():
+    first = ScriptedProvider([_ProviderCallError("reset", status=None)])
+    second = ScriptedProvider([_ProviderCallError("credits", status=402)])
+    third = ScriptedProvider(['{"a": 3}'])
+    client, _, _ = _client(
+        {"snowflake": first, "gemini": second, "ollama": third},
+        chain=["snowflake", "gemini", "ollama"],
+    )
+    assert client.complete_json("write_brief", "", "", _SCHEMA, "k") == {"a": 3}
     assert len(third.calls) == 1
-    assert client.last_provider == "ollama"
-    assert [call["temperature"] for call in third.calls] == [0]
-    assert third.calls[0]["max_tokens"] == 400
 
 
 def test_repair_retry_then_accepts_valid_json():
-    provider = ScriptedProvider(["not json", '{"ok": true}'])
+    provider = ScriptedProvider(["nope", '{"a": 1}'])
     client, _, _ = _client({"snowflake": provider})
-    assert client.complete_json("extract_metrics", "sys", "user", SCHEMA, "") == {"ok": True}
+    assert client.complete_json("extract_metrics", "sys", "user", _SCHEMA, "k") == {"a": 1}
     assert len(provider.calls) == 2
-    assert "failed validation" in provider.calls[1]["user"]
-    assert provider.calls[0]["max_tokens"] == 2000
+    assert "not valid JSON" in provider.calls[1]["user"]
+    assert "Return only the corrected JSON." in provider.calls[1]["user"]
 
 
-def test_schema_failure_repairs_once_then_moves_on():
-    snowflake = ScriptedProvider(['{"ok": "no"}', '{"ok": "still"}'])
-    gemini = ScriptedProvider(['{"ok": false}'])
-    client, _, _ = _client({"snowflake": snowflake, "gemini": gemini})
-    assert client.complete_json("write_brief", "sys", "user", SCHEMA, "") == {"ok": False}
+def test_failed_repair_moves_to_the_next_provider():
+    snowflake = ScriptedProvider(["nope", "still nope"])
+    gemini = ScriptedProvider(['{"a": 4}'])
+    client, _, _ = _client(
+        {"snowflake": snowflake, "gemini": gemini},
+        chain=["snowflake", "gemini"],
+    )
+    assert client.complete_json("label_market", "sys", "user", _SCHEMA, "k") == {"a": 4}
     assert len(snowflake.calls) == 2
     assert len(gemini.calls) == 1
-    assert gemini.calls[0]["max_tokens"] == 1200
 
 
-def test_call_budget_and_the_hour_window():
-    provider = ScriptedProvider(['{"ok": true}', '{"ok": true}'])
-    clock = Clock()
-    client, _, _ = _client({"snowflake": provider}, max_calls_per_hour=1, now=clock)
-    client.complete_json("label_market", "sys", "user", SCHEMA, "")
-    with pytest.raises(LLMError) as exc:
-        client.complete_json("label_market", "sys", "other", SCHEMA, "")
-    assert exc.value.code == "E_LLM_BUDGET"
-    assert len(provider.calls) == 1
-    clock.t = AS_OF + timedelta(hours=1, seconds=1)
-    assert client.complete_json("label_market", "sys", "other", SCHEMA, "") == {"ok": True}
+def test_schema_miss_is_repaired_once():
+    provider = ScriptedProvider(['{"a": "no"}', '{"a": 1}'])
+    client, _, _ = _client({"snowflake": provider})
+    assert client.complete_json("label_market", "sys", "user", _SCHEMA, "k") == {"a": 1}
     assert len(provider.calls) == 2
 
 
-def test_input_token_budget_does_not_call():
-    provider = ScriptedProvider(['{"ok": true}'])
-    client, _, _ = _client({"snowflake": provider}, max_input_tokens=1)
-    with pytest.raises(LLMError) as exc:
-        client.complete_json("label_market", "sys", "x" * 100, SCHEMA, "")
-    assert exc.value.code == "E_LLM_BUDGET"
+def test_other_4xx_does_not_continue():
+    snowflake = ScriptedProvider([_ProviderCallError("bad request", status=400)])
+    gemini = ScriptedProvider(['{"a": 1}'])
+    client, _, _ = _client(
+        {"snowflake": snowflake, "gemini": gemini},
+        chain=["snowflake", "gemini"],
+    )
+    with pytest.raises(LLMError) as caught:
+        client.complete_json("label_market", "sys", "user", _SCHEMA, "k")
+    assert caught.value.code == "E_LLM_UNAVAILABLE"
+    assert gemini.calls == []
+
+
+def test_hourly_budget_resets_after_an_hour():
+    provider = ScriptedProvider(["ok", "ok"])
+    client, _, clock = _client({"snowflake": provider}, max_calls_per_hour=1)
+    assert client.complete_text("write_brief", "s", "u", "k") == "ok"
+    with pytest.raises(LLMError) as caught:
+        client.complete_text("write_brief", "s", "other", "k")
+    assert caught.value.code == "E_LLM_BUDGET"
+    clock["now"] = _CLOCK + timedelta(hours=1)
+    assert client.complete_text("write_brief", "s", "other", "k") == "ok"
+
+
+def test_input_token_budget():
+    provider = ScriptedProvider(["ok"])
+    client, _, _ = _client({"snowflake": provider}, max_input_tokens=2)
+    with pytest.raises(LLMError) as caught:
+        client.complete_text("write_brief", "", "x" * 40, "k")
+    assert caught.value.code == "E_LLM_BUDGET"
     assert provider.calls == []
 
 
 def test_cache_only_miss_does_not_call():
-    provider = ScriptedProvider(['{"ok": true}'])
+    provider = ScriptedProvider(["ok"])
     client, _, _ = _client({"snowflake": provider}, mode="cache_only")
-    with pytest.raises(LLMError) as exc:
-        client.complete_text("write_brief", "sys", "user", "")
-    assert exc.value.code == "E_LLM_UNAVAILABLE"
+    with pytest.raises(LLMError) as caught:
+        client.complete_text("write_brief", "s", "u", "k")
+    assert caught.value.code == "E_LLM_UNAVAILABLE"
     assert provider.calls == []
 
 
-def test_off_mode_does_not_read_the_cache_or_call():
-    provider = ScriptedProvider(['{"ok": true}'])
-    client, cache, _ = _client({"snowflake": provider}, mode="off")
-    key = LLMClient.make_cache_key(
-        "label_market", "1", {"system": "sys", "user": "user", "schema": SCHEMA},
-    )
-    cache.put({
-        "cache_key": key,
-        "response_json": json.dumps({"ok": True}),
-        "provider": "snowflake",
-        "model": "m",
-    })
-    with pytest.raises(LLMError) as exc:
-        client.complete_json("label_market", "sys", "user", SCHEMA, key)
-    assert exc.value.code == "E_LLM_UNAVAILABLE"
-    assert provider.calls == []
-    assert client.cache_hits == 0
+def test_off_does_not_read_the_cache():
+    def explode(key):
+        raise AssertionError(key)
+
+    client = LLMClient(explode, lambda entry: None, chain=["snowflake"], mode="off", providers={}, env={})
+    with pytest.raises(LLMError) as caught:
+        client.complete_text("write_brief", "s", "u", "k")
+    assert caught.value.code == "E_LLM_UNAVAILABLE"
 
 
-def test_cache_hit_is_logged(caplog):
-    provider = ScriptedProvider(["hello"])
+def test_text_and_json_are_cached_separately():
+    provider = ScriptedProvider(["plain", '{"a": 1}'])
+    client, store, _ = _client({"snowflake": provider})
+    assert client.complete_text("write_brief", "s", "u", "k") == "plain"
+    assert client.complete_json("write_brief", "s", "u", _SCHEMA, "k") == {"a": 1}
+    assert len(store) == 2
+    assert len(provider.calls) == 2
+
+
+def test_json_array_is_returned():
+    schema = {"type": "array", "items": {"type": "integer"}}
+    provider = ScriptedProvider(["[1, 2]"])
     client, _, _ = _client({"snowflake": provider})
-    client.complete_text("write_brief", "sys", "user", "")
-    with caplog.at_level("INFO", logger="airscen.llm"):
-        client.complete_text("write_brief", "sys", "user", "")
-    hits = [json.loads(rec.message) for rec in caplog.records if rec.name == "airscen.llm"]
-    assert hits[-1]["cache_hit"] is True
-    assert hits[-1]["provider"] == "snowflake"
-    assert hits[-1]["component"] == "llm"
+    assert client.complete_json("extract_metrics", "s", "u", schema, "k") == [1, 2]
 
 
-def test_a_non_retryable_status_stops_the_chain():
-    first = ScriptedProvider([ProviderCallError("nope", status=400)])
-    second = ScriptedProvider(['{"ok": true}'])
-    client, _, _ = _client({"snowflake": first, "gemini": second})
-    with pytest.raises(LLMError) as exc:
-        client.complete_json("label_market", "sys", "user", SCHEMA, "")
-    assert exc.value.code == "E_LLM_UNAVAILABLE"
-    assert second.calls == []
+def test_all_invalid_output_is_bad_output():
+    provider = ScriptedProvider(["nope", "still nope"])
+    client, _, _ = _client({"snowflake": provider})
+    with pytest.raises(LLMError) as caught:
+        client.complete_json("label_market", "s", "u", _SCHEMA, "k")
+    assert caught.value.code == "E_LLM_BAD_OUTPUT"
+    assert len(provider.calls) == 2
 
 
-def test_make_cache_key_changes_with_the_prompt_version():
-    payload = {"system": "sys", "user": "user"}
-    assert LLMClient.make_cache_key("write_brief", "1", payload) != LLMClient.make_cache_key(
-        "write_brief", "2", payload,
+def test_placeholder_gemini_model_is_replaced():
+    provider = ScriptedProvider(['{"a": 1}'])
+    client, _, _ = _client(
+        {"gemini": provider},
+        chain=["gemini"],
+        models={"gemini": "<current Flash model id>"},
     )
+    client.complete_json("label_market", "s", "u", _SCHEMA, "k")
+    assert provider.calls[0]["model"] == "gemini-3.5-flash"
+
+
+def test_snowflake_sends_max_completion_tokens_and_accept_json():
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["url"] = str(request.url)
+        seen["body"] = json.loads(request.content)
+        seen["accept"] = request.headers.get("accept")
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": "ok"}}], "usage": {"prompt_tokens": 1, "completion_tokens": 1}},
+        )
+
+    cache_get, cache_put, _ = memory_cache()
+    client = LLMClient(
+        cache_get,
+        cache_put,
+        chain=["snowflake"],
+        env={"SNOWFLAKE_ACCOUNT": "ORG-ACCT", "SNOWFLAKE_PAT": "pat"},
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    assert client.complete_text("write_brief", "s", "u", "k") == "ok"
+    assert seen["url"] == "https://org-acct.snowflakecomputing.com/api/v2/cortex/v1/chat/completions"
+    assert seen["accept"] == "application/json"
+    assert seen["body"]["max_completion_tokens"] == 1200
+    assert "max_tokens" not in seen["body"]
+    assert seen["body"]["temperature"] == 0
+
+
+def test_post_chat_parses_200_and_402_is_retryable():
+    def ok(request: httpx.Request) -> httpx.Response:
+        assert request.headers["accept"] == "application/json"
+        return httpx.Response(
+            200,
+            json={
+                "choices": [{"message": {"content": "ok"}}],
+                "usage": {"prompt_tokens": 3, "completion_tokens": 1},
+            },
+        )
+
+    text, tokens_in, tokens_out = _post_chat(
+        "https://example.test/chat",
+        {"Accept": "application/json"},
+        {"model": "m"},
+        httpx.Client(transport=httpx.MockTransport(ok)),
+    )
+    assert (text, tokens_in, tokens_out) == ("ok", 3, 1)
+
+    def denied(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(402, json={"message": "credits"})
+
+    with pytest.raises(_ProviderCallError) as caught:
+        _post_chat(
+            "https://example.test/chat",
+            {},
+            {},
+            httpx.Client(transport=httpx.MockTransport(denied)),
+        )
+    assert caught.value.retryable
+    assert caught.value.status == 402

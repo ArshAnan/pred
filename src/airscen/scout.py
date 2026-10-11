@@ -1,12 +1,8 @@
-"""Candidate markets and hand labels.
+"""Candidate markets and labels.
 
-`candidates` and `hand_labels` are B9. `label` stays for B10: an LLM label
-cached by content hash, with hand labels always winning. This module does not
-open the database and does not call the network. Lane A's worker loads
-`hand_labels` during discovery and writes the rows.
+hand_labels is the function Lane A's worker calls during discovery.
+label() stays unimplemented until B10.
 """
-
-from __future__ import annotations
 
 import re
 from pathlib import Path
@@ -15,64 +11,70 @@ import yaml
 
 from airscen.types import Factor, MarketKind, MarketLabel, MarketMeta, Venue
 
-# Keyword prefilter for the airline decision: fuel, the next Fed decision,
-# CPI, and Hormuz. Short tokens use a word boundary so "FedEx" and "principle"
-# are not candidates. The hand shortlist is narrower than this filter.
-_CANDIDATE = re.compile(
-    r"\b(?:wti|brent|fomc|cpi|pce|inflation|hormuz)\b"
-    r"|crude oil|oil price|jet fuel"
-    r"|federal funds|federal reserve|fed decision|interest rate|rate hike|rate cut",
-    re.IGNORECASE,
+_WORD = re.compile(r"\b(?:wti|crude|brent|fomc|cpi|pce|inflation|hormuz)\b", re.IGNORECASE)
+_PHRASES = (
+    "oil price",
+    "jet fuel",
+    "federal funds",
+    "fed decision",
+    "federal reserve",
+    "interest rate",
+    "rate hike",
+    "rate cut",
+    "strait of hormuz",
 )
-
-_OVERRIDE_KEYS = ("kind", "threshold", "threshold_unit", "group_key", "outcome")
+_OVERRIDE_KEYS = ("kind", "outcome", "threshold", "threshold_unit", "group_key")
 
 
 def candidates(markets: list[MarketMeta]) -> list[MarketMeta]:
-    """Keep markets whose title or rules match a modeled or mapped factor."""
-    return [market for market in markets if _CANDIDATE.search(f"{market.title}\n{market.rules}")]
+    """Keyword prefilter. Bare 'federal' and names like FedEx stay out."""
+    chosen = []
+    for market in markets:
+        text = f"{market.title}\n{market.rules}"
+        lowered = text.lower()
+        if _WORD.search(text) or any(phrase in lowered for phrase in _PHRASES):
+            chosen.append(market)
+    return chosen
 
 
 def label(meta: MarketMeta) -> MarketLabel | None:
     """Return a label, or None when labeling fails and the market stays unlabeled."""
-    raise NotImplementedError
+    raise NotImplementedError("LLM labeling is B10")
 
 
 def hand_labels(path: str) -> dict[tuple[Venue, str], tuple[MarketLabel, dict]]:
     """Load hand labels plus optional metadata overrides.
 
-    The override dict may contain kind, threshold, threshold_unit, group_key
-    and outcome. A key set to null is included so a worker can clear a bad
-    parse. label_source is always "hand".
+    label_source is always "hand". A repeated venue and market_id raises
+    ValueError. Override keys are kind, outcome, threshold, threshold_unit,
+    and group_key.
     """
-    raw = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or []
-    if not isinstance(raw, list):
-        raise ValueError("hand labels must be a list")
-    loaded: dict[tuple[Venue, str], tuple[MarketLabel, dict]] = {}
-    for entry in raw:
-        if not isinstance(entry, dict):
-            raise ValueError("each hand label must be a mapping")
-        venue = Venue(entry["venue"])
-        market_id = str(entry["market_id"])
-        factor = entry.get("factor")
-        label_row = MarketLabel(
-            relevant=bool(entry["relevant"]),
+    loaded = yaml.safe_load(Path(path).read_text()) or []
+    found: dict[tuple[Venue, str], tuple[MarketLabel, dict]] = {}
+    for row in loaded:
+        venue = Venue(str(row["venue"]))
+        market_id = str(row["market_id"])
+        key = (venue, market_id)
+        if key in found:
+            raise ValueError(f"duplicate hand label for {venue.value} {market_id}")
+        factor = row.get("factor")
+        label = MarketLabel(
+            relevant=bool(row["relevant"]),
             factor=Factor(factor) if factor else None,
-            yes_moves_factor=entry.get("yes_moves_factor"),
-            mechanism=entry.get("mechanism") or "",
-            citation=entry.get("citation"),
+            yes_moves_factor=row.get("yes_moves_factor"),
+            mechanism=row.get("mechanism") or "",
+            citation=row.get("citation"),
             label_source="hand",
         )
         overrides = {}
-        for key in _OVERRIDE_KEYS:
-            if key not in entry:
+        for name in _OVERRIDE_KEYS:
+            if name not in row or row[name] is None:
                 continue
-            value = entry[key]
-            if key == "kind" and value is not None:
-                value = MarketKind(value)
-            overrides[key] = value
-        key = (venue, market_id)
-        if key in loaded:
-            raise ValueError(f"duplicate hand label for {venue.value} {market_id}")
-        loaded[key] = (label_row, overrides)
-    return loaded
+            value = row[name]
+            if name == "kind":
+                value = MarketKind(value).value
+            elif name == "threshold":
+                value = float(value)
+            overrides[name] = value
+        found[key] = (label, overrides)
+    return found
