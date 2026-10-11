@@ -210,18 +210,18 @@ def test_a_short_outage_is_not_stale_yet(store, slack, base_run):
 
 # ---- plain-language messages (for a treasury or credit reader, not a trader) ----
 
-def test_breach_flip_message_says_what_changed_why_and_what_to_do(store, slack, base_run):
+def test_breach_flip_message_says_what_changed_and_why_without_advice(store, slack, base_run):
     eng = engine(store, slack)
     step(eng, base_run, 0.074, 0.297)
     text = slack.texts[0]
     assert text.splitlines()[0] == "*Delta Air Lines: the planned $1,000M 7-year note just got riskier to service.*"
     assert "Chance that interest coverage drops below 6.0x: *29.7%* (was 7.4%)" in text
     assert "if WTI rises above $103 a barrel" in text           # the breakeven, in plain words
-    assert "re-check the issue size and terms" in text
+    assert "what to do" not in text.lower() and "should" not in text.lower()  # notify, never advise
     assert "not a forecast or investment advice" in text
     assert "Oct 9, 14:30 UTC" in text and "BREACH_FLIP" in text  # time and rule kept for traceability
     assert "threshold 20.0%" not in text                       # the alert level is not the coverage threshold
-    assert len(text.splitlines()) <= 6
+    assert len(text.splitlines()) <= 5
 
 
 def test_driver_move_message_names_the_market_and_its_effect(store, slack, base_run):

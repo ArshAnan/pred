@@ -53,14 +53,21 @@ def _default_repo(settings: Any) -> Any:
 
 def _worker_runners(worker: Any) -> dict[str, service.JobRunner]:
     """Ingest jobs run the worker's own ticks (D5). Ticks take no arguments, so tickers are not
-    narrowed yet; backfill (lane A, A17) is wired once the worker exposes it."""
+    narrowed. Backfill runs worker.backfill(start, end) over the whole window, when the worker has it."""
     if worker is None:
         return {}
-    return {
+    runners: dict[str, service.JobRunner] = {
         "markets": lambda tickers, window: worker.tick_markets(),
         "filings": lambda tickers, window: worker.tick_filings(),
         "macro": lambda tickers, window: worker.tick_macro(),
     }
+    if hasattr(worker, "backfill"):
+        def backfill(tickers, window):
+            start = datetime.combine(window[0], datetime.min.time(), tzinfo=timezone.utc)
+            end = datetime.combine(window[1] + timedelta(days=1), datetime.min.time(), tzinfo=timezone.utc)
+            worker.backfill(start, end)
+        runners["backfill"] = backfill
+    return runners
 
 
 def create_app(
@@ -154,11 +161,14 @@ def _router() -> APIRouter:
         state = request.app.state
         if state.repo is None:
             raise StoreError("The database is unavailable")
+        ping = getattr(state.repo, "ping", None)
+        if ping is not None and not ping():
+            raise StoreError("The database is unreadable")
         sources, worker = _worker_status(state)
         degraded = worker.degraded or any(s.status != "ok" for s in sources.values())
         return HealthStatus(
             status="degraded" if degraded else "ok", db="ok", sources=sources,
-            llm=LLMStatus(mode=state.settings.llm_mode), worker=worker,
+            last_snapshot_age_s=_snapshot_age(state), llm=LLMStatus(mode=state.settings.llm_mode), worker=worker,
         )
 
     @router.get("/companies", response_model=list[Company])
@@ -329,6 +339,17 @@ class JobStatus(BaseModel):
     errors: list[dict[str, str]]
     started_at: datetime
     finished_at: Optional[datetime] = None
+
+
+def _snapshot_age(state: Any) -> Optional[float]:
+    age = getattr(state.worker, "last_snapshot_age_s", None)
+    if age is None:
+        return None
+    try:
+        return age()
+    except Exception:
+        log.exception("last_snapshot_age_s failed")
+        return None
 
 
 def _worker_status(state: Any) -> tuple[dict, WorkerStatus]:

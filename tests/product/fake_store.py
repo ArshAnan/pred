@@ -1,17 +1,19 @@
-"""TEMPORARY in-memory stand-in for lane A's store.Repository, used by lane C tests until lane A's
-store (or their tests/fakes/fake_repo.py, CP0_DECISIONS R5) is on main. Replace it then.
+"""In-memory stand-in for lane A's store.Repository, for fast lane C unit tests whose setup edits
+the data directly (store.facts, store.market_views, store.snapshots, store.macro).
 
-Return shapes mirror arnav-lane-A's store.py (A2/A3):
-  latest_facts(company, as_of)                  -> (list[Fact], set[str] flags)
-  latest_snapshot(venue, market_id, as_of)      -> (Snapshot | None, stale: bool)
+Return shapes mirror lane A's store.py on main. test_real_store.py runs the same scenarios on lane A's
+own tests/fakes/fake_repo.py (the real SQLite store, in memory) so the two cannot drift apart:
+  latest_facts(company, as_of)                  -> (list[Fact], list[str] flags)
+  latest_snapshot(venue, market_id, as_of, stale_after_s=300) -> (Snapshot | None, stale: bool)
   snapshot_series(venue, market_id, start, end, as_of) -> list[Snapshot], oldest first
-  markets(factor=None)                          -> list[MarketView] (meta and label only)
+  markets(factor=None)                          -> list[(MarketMeta, MarketLabel | None)]
+  upsert_market(meta, label=None)
   macro_series(series_id, start, end, as_of)    -> list[MacroObs]
   data_version(as_of)                           -> str
   save_run(run), get_run(run_id) -> RunResult | None, update_run_brief(run_id, md, status)
   save_alert(a) (upsert by alert_id), alerts(company, since) -> list[Alert], oldest first
   runs(ticker=None, limit=50) -> list[RunResult], newest first. NOT in lane A's store yet: GET /runs
-      needs it; lane A to add it (the runs table already has company and created_at).
+      needs it, and returns a clear 503 until lane A adds it (the runs table already has the columns).
 
 `seed_worked_example` loads the LLD section 6 worked example. ILLUSTRATIVE: market ids, quotes,
 the WTI ladder, DGS10 = 4.00 (so the coupon is 5.5% at a 150 bp spread) and W_bar = 85 are
@@ -57,17 +59,23 @@ class FakeStore:
         best: dict[tuple, Fact] = {}
         for f in sorted(visible, key=lambda f: f.filed_at):
             best[(f.metric, f.basis)] = f
-        return list(best.values()), set()
+        return list(best.values()), []
 
-    def latest_snapshot(self, venue, market_id, as_of):
+    def latest_snapshot(self, venue, market_id, as_of, stale_after_s=300):
         rows = [s for s in self.snapshots if s.venue == venue and s.market_id == market_id and s.ts <= as_of]
         if not rows:
             return None, False
         snap = max(rows, key=lambda s: s.ts)
-        return snap, (as_of - snap.ts).total_seconds() > self.stale_after_s
+        return snap, (as_of - snap.ts).total_seconds() > stale_after_s
 
     def markets(self, factor=None):
-        return [v for v in self.market_views if factor is None or (v.label and v.label.factor == factor)]
+        return [(v.meta, v.label) for v in self.market_views
+                if factor is None or (v.label is not None and v.label.factor == factor)]
+
+    def upsert_market(self, meta, label=None):
+        self.market_views = [v for v in self.market_views
+                             if (v.meta.venue, v.meta.market_id) != (meta.venue, meta.market_id)]
+        self.market_views.append(MarketView(meta=meta, label=label))
 
     def macro_series(self, series_id, start, end, as_of):
         day = as_of.astimezone(timezone.utc).date()

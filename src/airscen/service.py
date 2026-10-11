@@ -20,7 +20,7 @@ from airscen import factors, scenario, trust
 from airscen.brief import brief_problems, llm_brief, template_brief
 from airscen.types import (
     AirScenError, Basis, Brief, DataError, Fact, Factor, MarketMeta, MarketView, Metric, PeerResult, RequestError, RunRequest,
-    RunResult, RunSummary, ScenarioInputs, Snapshot, SourceError, TrustResult, Venue,
+    RunResult, RunSummary, ScenarioInputs, Snapshot, SourceError, StoreError, TrustResult, Venue,
 )
 
 log = logging.getLogger("airscen.service")
@@ -135,7 +135,7 @@ class RunService:
         return [
             RunSummary(run_id=r.run_id, company=r.company, as_of=r.as_of, created_at=r.created_at,
                        p_breach=r.summary.p_breach, flags=r.flags, llm_status=r.brief.llm_status)
-            for r in self.repo.runs(ticker=ticker, limit=limit)
+            for r in self._runs(ticker, limit)
         ]
 
     def facts(self, ticker: str, as_of: datetime) -> list[Fact]:
@@ -145,15 +145,15 @@ class RunService:
 
     def market_views(self, as_of: datetime, factor: Factor | None = None, min_trust: float | None = None) -> list[MarketView]:
         views = []
-        for view in self.repo.markets(factor):
-            snap, stale, score = self._score(view.meta, as_of)
+        for meta, label in self.repo.markets(factor):
+            snap, stale, score = self._score(meta, as_of)
             if min_trust is not None and (score is None or score.score < min_trust):
                 continue
-            views.append(view.model_copy(update={"latest": snap, "trust": score, "stale": stale}))
+            views.append(MarketView(meta=meta, label=label, latest=snap, trust=score, stale=stale))
         return views
 
     def history(self, venue: Venue, market_id: str, start: datetime, end: datetime, as_of: datetime) -> list[Snapshot]:
-        if not any(v.meta.venue == venue and v.meta.market_id == market_id for v in self.repo.markets()):
+        if not any(m.venue == venue and m.market_id == market_id for m, _ in self.repo.markets()):
             raise RequestError(f"Unknown market {venue.value}/{market_id}", code="E_NOT_FOUND",
                                details={"venue": venue.value, "market_id": market_id})
         return self.repo.snapshot_series(venue, market_id, start, end, as_of)
@@ -162,6 +162,13 @@ class RunService:
         """The trusted rate and fuel markets that would feed a run at as_of (used by DRIVER_MOVE)."""
         rates, fuel = self._factor_quotes(as_of, [])
         return rates + fuel
+
+    def _runs(self, ticker: str | None, limit: int) -> list[RunResult]:
+        lister = getattr(self.repo, "runs", None)
+        if lister is None:  # lane A's store has no list method yet; GET /runs needs one
+            raise StoreError("Listing runs needs Repository.runs(ticker, limit) in the store (lane A)",
+                             details={"missing": "Repository.runs"})
+        return lister(ticker=ticker, limit=limit)
 
     def _check_ticker(self, ticker: str) -> None:
         if ticker not in {c.ticker for c in self.settings.companies}:
@@ -225,7 +232,8 @@ class RunService:
 
     def _score(self, meta: MarketMeta, as_of: datetime) -> tuple[Snapshot | None, bool, TrustResult | None]:
         """Latest snapshot at as_of, whether it is stale, and its trust (None if missing or unclean)."""
-        snap, stale = self.repo.latest_snapshot(meta.venue, meta.market_id, as_of)
+        stale_after_s = self.settings.poll.stale_after_s
+        snap, stale = self.repo.latest_snapshot(meta.venue, meta.market_id, as_of, stale_after_s=stale_after_s)
         if snap is None or trust.clean(snap, as_of) is None:
             return snap, stale, None
         cfg = {**self.settings.trust.model_dump(), "stale_after_s": self.settings.poll.stale_after_s}
@@ -234,8 +242,7 @@ class RunService:
 
     def _factor_quotes(self, as_of: datetime, flags: list[str]):
         rates, fuel = [], []
-        for view in self.repo.markets():
-            meta, label = view.meta, view.label
+        for meta, label in self.repo.markets():
             if label is None or not label.relevant or label.factor not in (Factor.RATES, Factor.FUEL):
                 continue
             if meta.close_time is not None and meta.close_time <= as_of:

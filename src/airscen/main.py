@@ -14,8 +14,7 @@ from collections.abc import Callable
 from typing import Any
 
 from airscen import alerts, api, config, llm, scout, worker
-from airscen.adapters import alpaca, edgar, fred, gdelt, kalshi, polymarket
-from airscen.types import MarketMeta, MarketView
+from airscen.types import MarketLabel, MarketMeta
 
 log = logging.getLogger("airscen.main")
 
@@ -30,11 +29,12 @@ def llm_factory(settings: Any, repo: Any) -> Any:
     return llm.LLMClient(cache_get=repo.cache_get, cache_put=repo.cache_put, chain=chain, mode=settings.llm_mode)
 
 
-def make_label_fn(repo: Any, llm_client: Any) -> Callable[[list[MarketMeta]], None]:
-    """The worker's label_fn (D5): keyword-filter discovered markets, label them (hand labels win), store them."""
+def make_label_fn(llm_client: Any) -> Callable[[list[MarketMeta]], dict]:
+    """The worker's label_fn: label discovered markets (hand labels win, then the LLM) and return
+    {(venue, market_id): MarketLabel}. The worker stores them with upsert_market(meta, label)."""
     hands: dict | None = None
 
-    def label_fn(metas: list[MarketMeta]) -> None:
+    def label_fn(metas: list[MarketMeta]) -> dict[tuple, MarketLabel]:
         nonlocal hands
         if hands is None:
             try:
@@ -42,6 +42,7 @@ def make_label_fn(repo: Any, llm_client: Any) -> Callable[[list[MarketMeta]], No
             except Exception:
                 log.exception("hand labels could not be loaded; using LLM labels only")
                 hands = {}
+        labels: dict[tuple, MarketLabel] = {}
         for meta in scout.candidates(metas):
             try:
                 label = scout.label(meta, llm=llm_client, hands=hands)
@@ -49,27 +50,32 @@ def make_label_fn(repo: Any, llm_client: Any) -> Callable[[list[MarketMeta]], No
                 log.exception("labeling %s failed; it stays unlabeled", meta.market_id)
                 continue
             if label is not None:
-                repo.upsert_market(MarketView(meta=meta, label=label))
+                labels[(meta.venue, meta.market_id)] = label
+        return labels
 
     return label_fn
 
 
 def worker_factory(settings: Any, repo: Any, after_market_tick: Callable | None = None) -> Any:
-    """Lane A's WorkerLoop with the adapter modules, the scout label hook and the alert tick."""
+    """Lane A's WorkerLoop with lane A's adapter clients, the scout label hook and the alert tick."""
     try:
         llm_client = llm_factory(settings, repo)
     except Exception:
         log.exception("LLM client for labeling could not be built; hand labels only")
         llm_client = None
-    adapters = worker.Adapters(kalshi=kalshi, polymarket=polymarket, edgar=edgar, fred=fred, alpaca=alpaca, gdelt=gdelt)
-    return worker.WorkerLoop(repo=repo, adapters=adapters, settings=settings,
-                             label_fn=make_label_fn(repo, llm_client), after_market_tick=after_market_tick)
+    return worker.WorkerLoop(repo=repo, adapters=worker.build_adapters(settings), settings=settings,
+                             label_fn=make_label_fn(llm_client), after_market_tick=after_market_tick)
 
 
 def alerts_factory(settings: Any, repo: Any, service: Any, status_fn: Callable) -> alerts.AlertEngine:
+    try:
+        headlines = worker.build_adapters(settings).gdelt.headlines
+    except Exception:  # headlines are best effort (LLD); alerts still go out without them
+        log.exception("GDELT client could not be built; alerts carry no headlines")
+        headlines = None
     return alerts.AlertEngine(repo=repo, settings=settings, service=service,
                               slack=alerts.SlackSender(settings.slack_webhook_url),
-                              headlines=gdelt.headlines, status_fn=status_fn)
+                              headlines=headlines, status_fn=status_fn)
 
 
 def build_app(**overrides: Any):

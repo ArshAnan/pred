@@ -139,6 +139,29 @@ def test_backfill_is_not_wired_to_the_worker_yet():
     assert resp.status_code == 502 and resp.json()["error"]["details"]["source"] == "backfill"
 
 
+def test_backfill_runs_the_worker_backfill_over_the_whole_window():
+    worker, calls = FakeWorker(), []
+    worker.backfill = lambda start, end: calls.append((start, end)) or []
+    with TestClient(build(worker)) as c:
+        job = wait_done(c, c.post(P + "/admin/ingest", json={"window": "2026-07-01..2026-07-12"}).json()["job_id"])
+    assert job["status"] == "succeeded"
+    assert [(s.isoformat(), e.isoformat()) for s, e in calls] == [("2026-07-01T00:00:00+00:00", "2026-07-13T00:00:00+00:00")]
+
+
+def test_health_shows_the_newest_snapshot_age_from_the_worker():
+    worker = FakeWorker()
+    worker.last_snapshot_age_s = lambda: 42.0
+    with TestClient(build(worker)) as c:
+        assert health(c)["last_snapshot_age_s"] == 42.0
+
+
+def test_health_is_503_when_the_store_ping_fails():
+    store = FakeStore()
+    store.ping = lambda: False
+    with TestClient(build(FakeWorker(), store=store)) as c:
+        assert c.get(P + "/health").status_code == 503
+
+
 def test_explicit_job_runners_take_precedence_over_the_worker():
     worker, called = FakeWorker(), []
     runners = {"markets": lambda tickers, window: called.append("custom")}

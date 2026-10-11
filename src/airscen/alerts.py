@@ -216,10 +216,8 @@ def _decision(run: RunResult | None) -> dict | None:
 
 
 def format_alert(a: Alert) -> str:
-    """Slack text for a treasury or credit reader: what changed, why it matters, what to do.
-
-    Short on purpose. The rule code and run id stay in the footer so the alert can be traced.
-    """
+    """Slack text for a treasury or credit reader: what changed, by how much, and why. It notifies;
+    it never recommends an action. Short on purpose; the rule code and run id stay in the footer."""
     p = a.payload
     name = p.get("company_name") or a.company
     d = p.get("decision") or {}
@@ -233,7 +231,6 @@ def format_alert(a: Alert) -> str:
         if d.get("breakeven_wti_hold") is not None:
             lines.append(f"Why: the oil and Fed markets behind this moved. Coverage falls below {theta} "
                          f"if WTI rises above ${d['breakeven_wti_hold']:,.0f} a barrel.")
-        lines.append("What to do: re-check the issue size and terms before committing.")
     elif a.rule == "DRIVER_MOVE":
         lines = [
             f"*{name}: a market behind the note decision moved fast.*",

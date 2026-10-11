@@ -1,8 +1,8 @@
 """airscen.main builds the real app (option 1 for C8: the import rules keep api.py and service.py
 away from worker, adapters, scout and llm, so this composition module does the wiring).
 
-Lane A's WorkerLoop and lane B's LLMClient are still placeholders on main, so these tests swap in
-small recording classes and check what main passes them."""
+Tests swap lane A's WorkerLoop and lane B's LLMClient for small recording classes and check what main
+passes them, so no test starts the real worker (it would call Kalshi and Polymarket over the network)."""
 
 
 from fastapi import FastAPI
@@ -36,22 +36,28 @@ def test_module_app_is_a_fastapi_app():
     assert isinstance(main.app, FastAPI)
 
 
+ADAPTERS = object()
+
+
 def test_worker_gets_the_adapters_label_hook_and_alert_tick(monkeypatch):
     RecordingWorker.instances = []
     monkeypatch.setattr(main.worker, "WorkerLoop", RecordingWorker)
+    monkeypatch.setattr(main.worker, "build_adapters", lambda settings: ADAPTERS)
     store = FakeStore()
     app = main.build_app(settings_loader=lambda: Settings(llm_mode="off"), repo_factory=lambda s: store)
     with TestClient(app) as c:
         assert c.get("/api/v1/health").json()["status"] == "ok"
     w = RecordingWorker.instances[0]
     assert w.repo is store
-    assert w.adapters.kalshi is main.kalshi and w.adapters.fred is main.fred and w.adapters.gdelt is main.gdelt
+    assert w.adapters is ADAPTERS                     # lane A's build_adapters(settings)
     assert w.after_market_tick.__name__ == "tick"
     assert callable(w.label_fn)
 
 
-def test_a_placeholder_worker_leaves_the_api_up_and_degraded():
-    # On main today WorkerLoop raises NotImplementedError (lane A, A12).
+def test_a_worker_that_cannot_be_built_leaves_the_api_up_and_degraded(monkeypatch):
+    def broken(**kw):
+        raise RuntimeError("bad key")
+    monkeypatch.setattr(main.worker, "WorkerLoop", broken)
     app = main.build_app(settings_loader=lambda: Settings(llm_mode="off"), repo_factory=lambda s: FakeStore())
     with TestClient(app) as c:
         h = c.get("/api/v1/health").json()
@@ -71,7 +77,7 @@ def test_no_llm_client_when_llm_mode_is_off():
     assert main.llm_factory(Settings(llm_mode="off"), FakeStore()) is None
 
 
-def test_label_hook_upserts_labeled_candidates(monkeypatch):
+def test_label_hook_returns_labels_for_candidates(monkeypatch):
     meta = MarketMeta(venue=Venue.KALSHI, market_id="WTI-ILLUSTRATIVE-90", title="WTI above 90",
                       kind=MarketKind.CLOSE_ABOVE, threshold=90, group_key="G")
     other = meta.model_copy(update={"market_id": "UNRELATED", "title": "Weather"})
@@ -79,11 +85,8 @@ def test_label_hook_upserts_labeled_candidates(monkeypatch):
     monkeypatch.setattr(main.scout, "candidates", lambda metas: [m for m in metas if m.market_id != "UNRELATED"])
     monkeypatch.setattr(main.scout, "label", lambda m, llm=None, hands=None: label)
     monkeypatch.setattr(main.scout, "hand_labels", lambda path: {})
-    upserts = []
-    store = FakeStore()
-    store.upsert_market = upserts.append
-    main.make_label_fn(store, llm_client=None)([meta, other])
-    assert [(v.meta.market_id, v.label.factor) for v in upserts] == [("WTI-ILLUSTRATIVE-90", "fuel")]
+    labels = main.make_label_fn(llm_client=None)([meta, other])
+    assert labels == {(Venue.KALSHI, "WTI-ILLUSTRATIVE-90"): label}  # the worker stores them
 
 
 def test_label_hook_keeps_going_when_one_market_fails(monkeypatch):
@@ -95,8 +98,5 @@ def test_label_hook_keeps_going_when_one_market_fails(monkeypatch):
     monkeypatch.setattr(main.scout, "candidates", lambda ms: ms)
     monkeypatch.setattr(main.scout, "label", label)
     monkeypatch.setattr(main.scout, "hand_labels", lambda path: {})
-    upserts = []
-    store = FakeStore()
-    store.upsert_market = upserts.append
-    main.make_label_fn(store, llm_client=None)(metas)
-    assert [v.meta.market_id for v in upserts] == ["M1"]
+    labels = main.make_label_fn(llm_client=None)(metas)
+    assert list(labels) == [(Venue.KALSHI, "M1")]
