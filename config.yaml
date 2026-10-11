@@ -1,4 +1,5 @@
-# Defaults from LLD section 9; company CIKs and model placeholders remain unresolved.
+# Defaults from LLD section 9. UAL and AAL CIKs were confirmed on 2026-10-11.
+# Kalshi series were confirmed via /series and /markets on 2026-10-11.
 companies:
   - {ticker: DAL, cik: 27904, name: Delta Air Lines, peers: [UAL, AAL]}
   - {ticker: UAL, cik: 100517, name: United Airlines Holdings, peers: [DAL, AAL]}   # company_tickers_exchange.json, 2026-10-11
@@ -26,3 +27,8 @@ llm:
   max_calls_per_hour: 120
   max_input_tokens: 20000
   models: {snowflake: claude-haiku-4-5, gemini: "<current Flash model id>", ollama: "<installed instruct model>"}
+# KXFEDDECISION is one contract per meeting outcome. KXWTI is a close-above ladder.
+discovery:
+  kalshi_series: [KXFEDDECISION, KXWTI]
+  polymarket_queries: ["Federal Reserve", "WTI", "CPI"]
+  keywords: [fed, fomc, "federal reserve", "interest rate", wti, crude, oil, cpi, inflation]
