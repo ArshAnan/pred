@@ -66,6 +66,9 @@ background worker.
 - **Run**: the question form (company, as-of time, note size, tenor, spread, coverage threshold, fuel pass-through, peers),
   the answer, the six-scenario grid, flags and the brief. The LLM brief appears when ready (the page checks every 2 s for
   up to 60 s); until then, or if it fails the number check, the template brief is shown.
+- **Proof**: recomputes the stored answer from the filings, Treasury yield, baseline oil price and trusted quotes
+  visible at that as-of time. Each check is pass or fail. A written brief counts only when every number in it already
+  appears in the run or a sourced fact. The formulas are the decision; a language model writes labels and the brief.
 - **Exposure map**: the markets that bear on the decision, by factor, with direction and trust. LLM-written labels are
   marked "LLM (unvalidated)".
 - **Peers**: the same question for United and American with the same fuel curve and Fed odds but their own financials, plus operating margin (adjusted revenue when every company has it).
@@ -77,14 +80,16 @@ background worker.
 
 1. **Ask the question** (Run page): DAL, $1,000M, 7 years, 150 bp, your coverage threshold. Show the answer, the grid,
    the flags and the brief. Point out that every number in the brief traces to the run or a sourced fact.
-2. **Exposure map**: fuel markets outrank the Fed market for Delta.
-3. **Peers**: the three-airline table with `PERIOD_MISMATCH` where quarters differ.
-4. **Replay**: slide to 2026-07-10 and run. Compare the scenario range with what the September quarter showed; the run
+2. **Proof**: open Proof. It applies the quarterly formulas again to the sourced inputs and shows the pass or fail
+   of each check, including the written brief. Say that the language model did not produce the breach probability.
+3. **Exposure map**: fuel markets outrank the Fed market for Delta.
+4. **Peers**: the three-airline table with `PERIOD_MISMATCH` where quarters differ.
+5. **Replay**: slide to 2026-07-10 and run. Compare the scenario range with what the September quarter showed; the run
    carries `BACKFILL_INPUTS` when it uses backfilled quotes.
-5. **Alert**: run `make flip`. It evaluates the watched company twice, once at a 3.0x coverage threshold and once at 6.0x;
+6. **Alert**: run `make flip`. It evaluates the watched company twice, once at a 3.0x coverage threshold and once at 6.0x;
    on the worked example the breach probability goes from about 7.4% to 29.7%, crossing 20%, so a real `BREACH_FLIP`
    goes through the alert state machine to Slack. A second `make flip` within 60 minutes sends nothing (cooldown).
-6. **Evaluation**: `make eval`, and say its limits out loud (below).
+7. **Evaluation**: `make eval`, and say its limits out loud (below).
 
 Before the demo, to make it immune to network failures: with `LLM_MODE=live`, run `make warm AS_OF=<the time you will
 use>`, set `LLM_MODE=cache_only` in `.env`, restart `make api`, and in the Run page untick "Use the current time" and enter

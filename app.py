@@ -14,7 +14,7 @@ from datetime import time as clock_time
 
 import streamlit as st
 
-from airscen.types import RunResult, ScenarioSummary
+from airscen.types import DecisionProof, RunResult, ScenarioSummary
 from airscen.ui.client import UNREACHABLE, ApiClient, ApiError
 
 NA = "n/a"
@@ -309,6 +309,11 @@ def show_result(result: RunResult) -> None:
     else:
         st.markdown("No flags.")
 
+    st.caption(
+        "The Proof page recomputes these numbers from the filings, yields and quotes, "
+        "and checks the written brief number by number."
+    )
+
     st.subheader("Brief")
     b = result.brief
     if b.llm_status == "pending":
@@ -534,6 +539,48 @@ def replay_page() -> None:
         show_result(await_brief(result))
 
 
+def proof_page() -> None:
+    masthead(
+        "Proof",
+        "Does this answer follow from its inputs?",
+        "The page reads the filings, yields and quotes visible at the run's as-of time, applies the "
+        "quarterly formulas again, and checks that a language model did not write the decision numbers.",
+    )
+    result = last_run()
+    if result is None:
+        st.info("Run a question first on the Run page. The proof checks that run.")
+        return
+    try:
+        proof = DecisionProof.model_validate(client().get(f"/runs/{result.run_id}/proof"))
+    except ApiError as e:
+        error_banner(e)
+        return
+    if proof.verdict == "proved":
+        st.success("Proved. The stored answer is the one the formulas produce from these inputs.")
+    else:
+        st.error("Not proved. At least one check failed, so this answer does not follow from the inputs visible now.")
+    st.write(proof.statement)
+    left, right = st.columns(2)
+    left.metric("Checks passed", f"{sum(c.passed for c in proof.checks)} / {len(proof.checks)}")
+    right.metric("Language model wrote a decision number", "yes" if proof.decision_numbers_from_llm else "no")
+    st.subheader("Checks")
+    for check in proof.checks:
+        mark = "Pass" if check.passed else "Fail"
+        st.markdown(f"**{mark} — {check.title}**")
+        st.caption(check.detail)
+    st.subheader("Inputs")
+    if not proof.inputs:
+        st.caption("No inputs could be read for this as-of time.")
+        return
+    st.dataframe([{
+        "Kind": t.kind, "Name": t.name, "Value": t.value, "Source": t.source,
+        "Visible at as-of": "yes" if t.as_of_visible else "no",
+        "In the formulas": "yes" if t.used_in_decision else "no",
+        "Extraction": t.extraction or "-", "Validated": "-" if t.validated is None else ("yes" if t.validated else "no"),
+        "Note": t.note,
+    } for t in proof.inputs], hide_index=True, width="stretch")
+
+
 def run_page() -> None:
     masthead(
         "Desk",
@@ -553,7 +600,7 @@ def run_page() -> None:
         show_result(result)
 
 
-PAGES = {"Run": run_page, "Exposure map": exposure_page, "Peers": peers_page,
+PAGES = {"Run": run_page, "Proof": proof_page, "Exposure map": exposure_page, "Peers": peers_page,
          "Sensitivity": sensitivity_page, "Alerts": alerts_page, "Replay": replay_page}
 
 

@@ -16,12 +16,13 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Optional
 
-from airscen import factors, scenario, trust
+from airscen import factors, proof, scenario, trust
 from airscen.brief import brief_problems, llm_brief, repair_brief, template_brief
 from airscen.sensitivity import sweep_assumptions
 from airscen.types import (
-    AirScenError, Basis, Brief, DataError, Fact, Factor, MarketMeta, MarketView, Metric, PeerResult, RequestError, RunRequest,
-    RunResult, RunSummary, ScenarioInputs, SensitivityReport, Snapshot, SourceError, StoreError, TrustResult, Venue,
+    AirScenError, Basis, Brief, DataError, DecisionProof, Fact, Factor, InputTrace, MarketMeta, MarketView, Metric,
+    PeerResult, RequestError, RunRequest, RunResult, RunSummary, ScenarioInputs, SensitivityReport, Snapshot,
+    SourceError, StoreError, TrustResult, Venue,
 )
 
 log = logging.getLogger("airscen.service")
@@ -35,6 +36,10 @@ WTI = "DCOILWTICO"
 DGS10_LOOKBACK_DAYS = 30
 MIN_WTI_OBS = 30
 ALWAYS_FLAGS = ("CRUDE_ONLY", "RESOLVE_DATE_PROXY")
+DECISION_METRICS = {
+    Metric.OPERATING_INCOME, Metric.NET_INTEREST_EXPENSE, Metric.FUEL_GALLONS_M,
+    Metric.DEBT_TOTAL, Metric.VARIABLE_DEBT_SHARE, Metric.LIQUIDITY, Metric.DEBT_CURRENT,
+}
 
 
 class RunService:
@@ -53,6 +58,26 @@ class RunService:
         self.clock = clock or (lambda: datetime.now(timezone.utc))
 
     def create_run(self, req: RunRequest) -> RunResult:
+        built = self._build(req, f"run_{uuid.uuid4().hex[:12]}")
+        status = "pending" if self.llm else "skipped"
+        result = built.result.model_copy(update={"brief": Brief(template_md="", llm_md=None, llm_status=status)})
+        result = result.model_copy(update={"brief": result.brief.model_copy(
+            update={"template_md": template_brief(result)})})
+        self.repo.save_run(result)
+        return result
+
+    def prove(self, run_id: str) -> DecisionProof:
+        """Re-read the inputs at the run's as-of time and check the stored answer against them."""
+        stored = self.get_run(run_id)
+        facts, _ = self.repo.latest_facts(stored.company, stored.as_of)
+        try:
+            built = self._build(stored.inputs, stored.run_id)
+        except DataError as e:
+            return proof.undecidable(stored, facts, e.message)
+        return proof.decide(stored, built.result, built.basis, built.traces, facts)
+
+    def _build(self, req: RunRequest, run_id: str) -> "_Built":
+        """One as-of read, the engine, and the input trace. Does not save or write the brief."""
         prepared = self._prepare(req)
 
         def scenarios(company: _CompanyInputs):
@@ -66,19 +91,36 @@ class RunService:
             peers, peer_books = [], []
         peers, focal_margin, margin_flags = self._with_margins(prepared.focal, peers, peer_books)
         flags = list(dict.fromkeys([*prepared.flags, *margin_flags]))
-
+        focal = prepared.focal
         result = RunResult(
-            run_id=f"run_{uuid.uuid4().hex[:12]}", company=req.ticker, as_of=prepared.as_of,
-            created_at=prepared.now, inputs=req.model_copy(update={"as_of": prepared.as_of}),
-            rows=rows, summary=summary, peers=peers, flags=flags,
-            data_version=self.repo.data_version(prepared.as_of),
-            brief=Brief(template_md="", llm_md=None, llm_status="pending" if self.llm else "skipped"),
+            run_id=run_id, company=req.ticker, as_of=prepared.as_of, created_at=prepared.now,
+            inputs=req.model_copy(update={"as_of": prepared.as_of}), rows=rows, summary=summary, peers=peers,
+            flags=flags, data_version=self.repo.data_version(prepared.as_of),
+            brief=Brief(template_md="", llm_md=None, llm_status="skipped"),
             operating_margin=focal_margin,
         )
-        result = result.model_copy(update={"brief": result.brief.model_copy(
-            update={"template_md": template_brief(result)})})
-        self.repo.save_run(result)
-        return result
+        rates, curve = prepared.rates, prepared.curve
+        rates_missing = rates is None or rates.p_hike is None
+        liquidity = focal.baseline.get(Metric.LIQUIDITY)
+        current = focal.baseline.get(Metric.DEBT_CURRENT)
+        basis = proof.MathBasis(
+            oi0=focal.baseline[Metric.OPERATING_INCOME].value,
+            ni0=focal.baseline[Metric.NET_INTEREST_EXPENSE].value,
+            gallons=focal.baseline[Metric.FUEL_GALLONS_M].value,
+            debt=focal.baseline[Metric.DEBT_TOTAL].value,
+            variable=focal.baseline[Metric.VARIABLE_DEBT_SHARE].value,
+            wti_ref=focal.wti_ref,
+            coupon=(prepared.dgs10 + req.coupon_spread_bp / 100) / 100,
+            dgs10=prepared.dgs10,
+            hike_bp=25 if rates is None else rates.delta_hike_bp,
+            rates_missing=rates_missing,
+            pi_hike=0.0 if rates_missing else rates.p_hike,
+            fuel_points=None if curve is None else tuple((float(k), float(p)) for k, p in curve.points),
+            liquidity=None if liquidity is None else liquidity.value,
+            debt_current=None if current is None else current.value,
+        )
+        traces = self._traces(focal, prepared.as_of, prepared.dgs10, prepared.rate_quotes, prepared.fuel_quotes)
+        return _Built(result, basis, traces)
 
     def sensitivity(self, run_id: str) -> SensitivityReport:
         """Recompute the saved question while moving one stated assumption at a time.
@@ -207,7 +249,10 @@ class RunService:
         rates, rate_flags = factors.rate_states(rate_quotes)
         curve, fuel_flags = factors.fuel_curve(fuel_quotes, as_of, self.settings.fuel.horizon_days)
         flags = focal.flags + market_flags + rate_flags + fuel_flags + list(ALWAYS_FLAGS)
-        return _Prepared(now=now, as_of=as_of, focal=focal, dgs10=dgs10, rates=rates, curve=curve, flags=flags)
+        return _Prepared(
+            now=now, as_of=as_of, focal=focal, dgs10=dgs10, rates=rates, curve=curve, flags=flags,
+            rate_quotes=rate_quotes, fuel_quotes=fuel_quotes,
+        )
 
     def _inputs(self, req: RunRequest, prepared: "_Prepared", company: "_CompanyInputs") -> ScenarioInputs:
         return ScenarioInputs(
@@ -321,6 +366,81 @@ class RunService:
             (rates if label.factor == Factor.RATES else fuel).append(quote)
         return rates, fuel
 
+    def _traces(self, focal: "_CompanyInputs", as_of: datetime, dgs10: float,
+                rate_quotes: list, fuel_quotes: list) -> list[InputTrace]:
+        """Every figure this read selected, and whether the formulas use it."""
+        traces = [
+            _fact_trace(fact, as_of, fact.metric in DECISION_METRICS)
+            for _, fact in sorted(focal.baseline.items(), key=lambda item: item[0].value)
+        ]
+        traces.append(self._dgs10_trace(as_of, dgs10))
+        traces.append(self._wti_trace(focal, as_of))
+        traces.extend(_market_trace(quote, as_of) for quote in rate_quotes + fuel_quotes)
+        return traces
+
+    def _dgs10_trace(self, as_of: datetime, dgs10: float) -> InputTrace:
+        day = as_of.astimezone(timezone.utc).date()
+        obs = self.repo.macro_series(DGS10, day - timedelta(days=DGS10_LOOKBACK_DAYS), day, as_of)
+        latest = obs[-1]
+        visible = latest.obs_date <= day and latest.realtime_start <= day
+        return InputTrace(
+            kind="macro", name=DGS10, value=f"{dgs10:.4f} percent", source="FRED DGS10",
+            as_of_visible=visible, used_in_decision=True, extraction="fred",
+            note=f"observation {latest.obs_date.isoformat()}, vintage {latest.realtime_start.isoformat()}",
+        )
+
+    def _wti_trace(self, focal: "_CompanyInputs", as_of: datetime) -> InputTrace:
+        anchor = focal.baseline.get(Metric.OPERATING_INCOME)
+        obs = []
+        if anchor is not None:
+            start, end = _quarter(anchor.period_end)
+            obs = self.repo.macro_series(WTI, start, end, as_of)
+        day = as_of.astimezone(timezone.utc).date()
+        override = "REF_WTI_OVERRIDE" in focal.flags
+        if override:
+            return InputTrace(
+                kind="macro", name=WTI, value=f"{focal.wti_ref:.4f} USD per barrel",
+                source="config.yaml fuel.wti_ref_override", as_of_visible=True, used_in_decision=True,
+                extraction="config", note="baseline oil price is the configured override",
+            )
+        visible = bool(obs) and all(o.obs_date <= day and o.realtime_start <= day for o in obs)
+        return InputTrace(
+            kind="macro", name=WTI, value=f"mean {focal.wti_ref:.4f} USD per barrel over {len(obs)} observations",
+            source="FRED DCOILWTICO", as_of_visible=visible, used_in_decision=True, extraction="fred",
+            note="mean WTI over the baseline quarter, each vintage on or before the as-of date",
+        )
+
+
+def _fact_trace(fact: Fact, as_of: datetime, used: bool) -> InputTrace:
+    filed = fact.filed_at.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return InputTrace(
+        kind="fact", name=fact.metric.value, value=f"{fact.value:.6g} {fact.unit}", source=fact.source_url,
+        as_of_visible=fact.filed_at <= as_of, used_in_decision=used, extraction=fact.extraction.value,
+        validated=fact.validated,
+        note=f"basis={fact.basis.value}; period_end={fact.period_end.isoformat()}; filed_at={filed}",
+    )
+
+
+def _market_trace(quote: factors.FactorQuote, as_of: datetime) -> InputTrace:
+    mid = quote.trust.mid
+    ts = quote.snapshot.ts.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return InputTrace(
+        kind="market", name=quote.meta.title, value="no mid" if mid is None else f"{mid:.4f}",
+        source=f"{quote.meta.venue.value}/{quote.meta.market_id}",
+        as_of_visible=quote.snapshot.ts <= as_of, used_in_decision=True, extraction="quote",
+        note=(
+            f"factor={quote.label.factor.value}; label={quote.label.label_source}; "
+            f"trust={quote.trust.score:.2f}; quote_ts={ts}"
+        ),
+    )
+
+
+@dataclass(frozen=True)
+class _Built:
+    result: RunResult
+    basis: proof.MathBasis
+    traces: list[InputTrace]
+
 
 @dataclass(frozen=True)
 class _Prepared:
@@ -331,6 +451,8 @@ class _Prepared:
     rates: Any
     curve: Any
     flags: list[str]
+    rate_quotes: list
+    fuel_quotes: list
 
 
 @dataclass(frozen=True)

@@ -254,3 +254,40 @@ class SensitivityReport(FrozenModel):
     call_stable: bool
     reading: str
     levers: list[SensitivityLever]
+
+
+class ProofCheck(FrozenModel):
+    """One step in the decision proof. `passed` is the step's own result."""
+
+    code: str
+    title: str
+    passed: bool
+    detail: str
+
+
+class InputTrace(FrozenModel):
+    """One filing, yield or quote the run could see at its as-of time."""
+
+    kind: Literal["fact", "macro", "market"]
+    name: str
+    value: str
+    source: str
+    as_of_visible: bool
+    used_in_decision: bool
+    extraction: Optional[Literal["xbrl", "parser", "llm", "override", "quote", "fred", "config"]] = None
+    validated: Optional[bool] = None
+    note: str = ""
+
+
+class DecisionProof(FrozenModel):
+    """Whether the stored answer is the one the formulas produce from the visible inputs."""
+
+    run_id: str
+    company: str
+    as_of: datetime
+    verdict: Literal["proved", "not_proved"]
+    statement: str
+    checks: list[ProofCheck]
+    inputs: list[InputTrace]
+    llm_status: Literal["pending", "ready", "failed", "rejected", "skipped"]
+    decision_numbers_from_llm: bool

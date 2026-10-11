@@ -27,6 +27,7 @@ export function ResultView({ run }: { run: RunResult }) {
             ? 'The Fed market had no quote fresh enough to use, so the rate is held flat. Oil is what moves this answer.'
             : 'Hold and a 25 bp hike are both priced from the Fed market.'}
           {' '}Conditional on these odds and the stated assumptions. Not a forecast.
+          {' '}The Proof page recomputes this answer from the filings, yields and quotes.
         </p>
       </article>
 

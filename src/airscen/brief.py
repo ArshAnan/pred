@@ -231,7 +231,10 @@ _ISO_DATE = re.compile(
 )
 _LIST_MARKER = re.compile(r"^\s*\d+[.)]\s", re.MULTILINE)
 # Not part of an identifier: no letter, digit, "_" or "." before it, and not "word-4" as in model names.
-_NUMBER = re.compile(r"(?<![\w.])(?<![A-Za-z]-)(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d+))?(?!\d)([A-Za-z_]*)")
+# The unit has to end the token. Otherwise "235b1c2d" (a data-version fingerprint) is read as 235 billion.
+_NUMBER = re.compile(
+    r"(?<![\w.])(?<![A-Za-z]-)(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d+))?(?!\d)([A-Za-z_]*)(?!\w)"
+)
 _UNITS = {"", "x", "b", "bn", "m", "mn", "k", "bp", "pp"}
 
 

@@ -1,4 +1,4 @@
-import type { Alert, Company, Fact, Health, MarketView, RunBody, RunResult, RunSummary } from './types'
+import type { Alert, Company, DecisionProof, Fact, Health, MarketView, RunBody, RunResult, RunSummary } from './types'
 
 export class ApiError extends Error {
   code: string
@@ -45,6 +45,10 @@ export function getRuns() {
 
 export function getRun(runId: string) {
   return request<RunResult>(`/runs/${encodeURIComponent(runId)}`)
+}
+
+export function getProof(runId: string) {
+  return request<DecisionProof>(`/runs/${encodeURIComponent(runId)}/proof`)
 }
 
 export function createRun(body: RunBody) {

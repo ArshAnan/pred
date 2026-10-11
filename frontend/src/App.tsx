@@ -4,13 +4,15 @@ import { Alerts } from './pages/Alerts'
 import { Dashboard } from './pages/Dashboard'
 import { Exposure } from './pages/Exposure'
 import { Peers } from './pages/Peers'
+import { Proof } from './pages/Proof'
 import { Replay } from './pages/Replay'
 import type { Health, RunResult } from './types'
 
-type Page = 'dashboard' | 'exposure' | 'peers' | 'alerts' | 'replay'
+type Page = 'dashboard' | 'proof' | 'exposure' | 'peers' | 'alerts' | 'replay'
 
 const MENU: { id: Page; label: string; group: string }[] = [
   { id: 'dashboard', label: 'Question', group: 'Decision' },
+  { id: 'proof', label: 'Proof', group: 'Decision' },
   { id: 'exposure', label: 'Exposure', group: 'Decision' },
   { id: 'peers', label: 'Peers', group: 'Decision' },
   { id: 'alerts', label: 'Alerts', group: 'Watch' },
@@ -60,6 +62,7 @@ export default function App() {
       <main>
         {offline && <p className="banner">Start the API with make api, then reload this page.</p>}
         {page === 'dashboard' && <Dashboard run={run} onRun={remember} />}
+        {page === 'proof' && <Proof run={run} onOpen={() => setPage('dashboard')} />}
         {page === 'exposure' && <Exposure />}
         {page === 'peers' && <Peers run={run} onOpen={() => setPage('dashboard')} />}
         {page === 'alerts' && <Alerts />}

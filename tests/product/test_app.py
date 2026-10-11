@@ -387,3 +387,34 @@ def test_health_banner_when_the_database_is_down():
 def test_no_banner_when_healthy(api):
     at = start()
     assert not at.error and not at.warning
+
+
+# ---- Proof page ----
+
+def test_proof_page_shows_a_proved_verdict_and_the_inputs(api):
+    run = run_json({"ticker": "DAL", "note_size_usd_m": 1000, "tenor_years": 7, "coupon_spread_bp": 150})
+    api.get(f"/runs/{run['run_id']}").respond(200, json=run)
+    api.get(f"/runs/{run['run_id']}/proof").respond(200, json={
+        "run_id": run["run_id"], "company": "DAL", "as_of": run["as_of"], "verdict": "proved",
+        "statement": "The breach probability comes from the quarterly formulas.",
+        "checks": [{
+            "code": "scenario_rows", "title": "Quarterly formulas match every scenario row",
+            "passed": True, "detail": "Hold at the median fuel state: coverage 7.49.",
+        }],
+        "inputs": [{
+            "kind": "fact", "name": "operating_income", "value": "1454 usd_m",
+            "source": "https://www.sec.gov/example", "as_of_visible": True, "used_in_decision": True,
+            "extraction": "override", "validated": True, "note": "basis=GAAP",
+        }],
+        "llm_status": "skipped", "decision_numbers_from_llm": False,
+    })
+    at = start()
+    at.session_state["run_id"] = run["run_id"]
+    open_page(at, "Proof")
+    assert any("Proved" in s.value for s in at.success)
+    text = page_text(at)
+    assert "Quarterly formulas match every scenario row" in text
+    assert "coverage 7.49" in text
+    table = at.dataframe[0].value
+    assert list(table["Name"]) == ["operating_income"]
+    assert list(table["In the formulas"]) == ["yes"]
