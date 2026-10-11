@@ -19,6 +19,114 @@ from airscen.ui.client import UNREACHABLE, ApiClient, ApiError
 
 NA = "n/a"
 
+# Institutional desk: dark surfaces, a steel-blue accent, monospace figures.
+# Public trading-terminal references (not a copied Mobbin screen) use the same
+# idea: dense type, hairline borders, color only for the numbers that matter.
+_CSS = """
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@450;560&family=IBM+Plex+Sans:wght@420;520;600&display=swap');
+html, body, [class*="css"] {
+  font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+}
+[data-testid="stAppViewContainer"] { background: #0c1220; }
+[data-testid="stHeader"] { background: transparent; }
+[data-testid="stToolbar"] { display: none; }
+footer { display: none; }
+.block-container { padding-top: 1.4rem; max-width: 1180px; }
+[data-testid="stSidebar"] {
+  background: #0e1526;
+  border-right: 1px solid #243049;
+}
+[data-testid="stSidebar"] [data-testid="stMarkdown"] p { margin-bottom: 0.15rem; }
+.mark {
+  font-weight: 600;
+  font-size: 1.2rem;
+  letter-spacing: -0.03em;
+  margin: 0.2rem 0 0;
+}
+.mark-sub {
+  color: #93a4c3;
+  font-size: 0.78rem;
+  margin: 0 0 0.8rem;
+}
+[data-testid="stSidebar"] [data-testid="stRadioOption"] {
+  padding: 0.45rem 0.7rem;
+  border-radius: 8px;
+  border: 1px solid transparent;
+}
+[data-testid="stSidebar"] [data-testid="stRadioOption"] > div > div:first-child { display: none; }
+[data-testid="stSidebar"] [data-testid="stRadioOption"][data-selected="true"] {
+  background: #1a2742;
+  border-color: #31415f;
+}
+.mast { margin: 0 0 1rem; }
+.kicker {
+  margin: 0 0 0.25rem;
+  color: #8eb4ff;
+  font-size: 0.68rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+.mast h1 {
+  margin: 0 0 0.35rem;
+  font-size: 1.65rem;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+}
+.lede { margin: 0; color: #93a4c3; max-width: 46rem; line-height: 1.45; }
+[data-testid="stMetric"] {
+  background: #141b2d;
+  border: 1px solid #243049;
+  border-radius: 10px;
+  padding: 0.75rem 0.9rem 0.45rem;
+}
+[data-testid="stMetricLabel"] {
+  color: #93a4c3;
+  font-size: 0.7rem;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+[data-testid="stMetricValue"] {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 1.35rem;
+  letter-spacing: -0.03em;
+}
+[data-testid="stForm"] {
+  background: #12192b;
+  border: 1px solid #243049;
+  border-radius: 12px;
+  padding: 0.4rem 0.85rem 0.2rem;
+}
+[data-testid="stDataFrame"] {
+  border: 1px solid #243049;
+  border-radius: 10px;
+  overflow: hidden;
+}
+.flag {
+  display: inline-block;
+  margin: 0 0.4rem 0.4rem 0;
+  padding: 0.18rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid #31415f;
+  background: #1a2742;
+  color: #d5def2;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 0.72rem;
+}
+h3 { letter-spacing: -0.02em; }
+"""
+
+
+def apply_theme() -> None:
+    st.html(f"<style>{_CSS}</style>")
+
+
+def masthead(kicker: str, title: str, lede: str) -> None:
+    st.html(
+        f'<div class="mast"><p class="kicker">{kicker}</p><h1>{title}</h1>'
+        f'<p class="lede">{lede}</p></div>'
+    )
+
 
 # ---- formatting (pure; also used by tests) ----
 
@@ -117,7 +225,7 @@ def run_form() -> dict | None:
             use_now = st.checkbox("Use the current time", value=True)
             as_of_date = st.date_input("As of date (UTC)", value=date.today())
             as_of_time = st.time_input("As of time (UTC)", value=clock_time(0, 0))
-        if not st.form_submit_button("Run"):
+        if not st.form_submit_button("Run", type="primary"):
             return None
     as_of = None if use_now else datetime.combine(as_of_date, as_of_time, tzinfo=timezone.utc)
     return {
@@ -158,8 +266,17 @@ def submit(body: dict) -> RunResult | None:
 
 
 def error_banner(e: ApiError) -> None:
+    missing = list(e.details.get("missing") or [])
+    if e.code == "E_MISSING_FACT" and missing == ["variable_debt_share"]:
+        st.warning(
+            "This company is not scored. Its filing does not state the variable-rate share of debt, "
+            "and that share is not guessed. Delta can be run: the June 30, 2026 release states 22% variable-rate debt."
+        )
+        if e.request_id:
+            st.caption(f"Request ID: {e.request_id}")
+        return
     lines = [f"**{e.code}**: {e.message}"]
-    if missing := e.details.get("missing"):
+    if missing:
         lines.append(f"Missing: {', '.join(missing)}. Try `make ingest`, then run again.")
     for f in e.details.get("fields", []):
         lines.append(f"`{'.'.join(str(p) for p in f.get('loc', []))}`: {f.get('msg', '')}")
@@ -176,10 +293,21 @@ def show_result(result: RunResult) -> None:
         st.warning("Liquidity does not cover debt due within a year.")
 
     st.subheader("Scenarios")
-    st.dataframe(grid_rows(result), hide_index=True, use_container_width=True)
+    labels = [f"{r.fuel_label} · {r.rate_label}" for r in result.rows]
+    st.bar_chart(
+        {"Scenario": labels, "Coverage": [r.coverage for r in result.rows]},
+        x="Scenario",
+        y="Coverage",
+        horizontal=True,
+        color="#8eb4ff",
+    )
+    st.dataframe(grid_rows(result), hide_index=True, width="stretch")
 
     st.subheader("Flags")
-    st.markdown(", ".join(f"`{f}`" for f in result.flags) if result.flags else "No flags.")
+    if result.flags:
+        st.markdown(" ".join(f'<span class="flag">{f}</span>' for f in result.flags), unsafe_allow_html=True)
+    else:
+        st.markdown("No flags.")
 
     st.subheader("Brief")
     b = result.brief
@@ -234,15 +362,18 @@ def peer_rows(result: RunResult, configured: list[str]) -> list[dict[str, str]]:
             rows.append({"Company": ticker, "Period end": "-", "Breach probability": NA,
                          "Operating margin": NA,
                          "Breakeven WTI, hold / hike": NA, "Coverage P50 / P90": NA, "Liquidity cover": NA,
-                         "Flags": "no result (missing inputs, or peers not requested)"})
+                         "Flags": "Not scored: a required filing input is missing, and it is not guessed"})
     return rows
 
 
 def peers_page() -> None:
-    st.title("Peers")
-    st.caption("Same question, fuel curve and Fed odds; each airline's own financials and baseline WTI. "
-               "Operating margin uses adjusted revenue when every compared company has it. "
-               "Otherwise the comparison is GAAP and the run carries MARGIN_BASIS_MISMATCH.")
+    masthead(
+        "Comparison",
+        "Peers",
+        "Same question, fuel curve and Fed odds; each airline's own financials and baseline WTI. "
+        "Operating margin uses adjusted revenue when every compared company has it. "
+        "Otherwise the comparison is GAAP and the run carries MARGIN_BASIS_MISMATCH.",
+    )
     result = last_run()
     if result is None:
         st.info("Run a question first on the Run page; its peers appear here.")
@@ -252,7 +383,7 @@ def peers_page() -> None:
     except ApiError:
         configured = [p.ticker for p in result.peers]
     st.info(f"As of {result.as_of.astimezone(timezone.utc):%Y-%m-%d %H:%M} UTC · run {result.run_id}")
-    st.dataframe(peer_rows(result, configured), hide_index=True, use_container_width=True)
+    st.dataframe(peer_rows(result, configured), hide_index=True, width="stretch")
 
 
 def alert_detail(a: dict) -> str:
@@ -265,9 +396,12 @@ def alert_detail(a: dict) -> str:
 
 
 def alerts_page() -> None:
-    st.title("Alerts")
-    st.caption("Alerts fire when the answer flips (BREACH_FLIP), a driver market jumps (DRIVER_MOVE) or a data "
-               "source is down (DATA_STALE). Undelivered alerts stay here even if Slack failed.")
+    masthead(
+        "Watch",
+        "Alerts",
+        "Alerts fire when the answer flips (BREACH_FLIP), a driver market jumps (DRIVER_MOVE) or a data "
+        "source is down (DATA_STALE). Undelivered alerts stay here even if Slack failed.",
+    )
     if st.button("Send test alert"):
         try:
             client().post("/admin/alerts/test", None)
@@ -286,16 +420,19 @@ def alerts_page() -> None:
         "Time (UTC)": a["ts"].replace("T", " ").replace("Z", ""), "Company": a["company"], "Rule": a["rule"],
         "Severity": a["severity"], "Delivery": "NOT DELIVERED" if a["status"] == "failed" else a["status"],
         "Detail": alert_detail(a), "Run": a.get("run_id") or "-",
-    } for a in feed], hide_index=True, use_container_width=True)
+    } for a in feed], hide_index=True, width="stretch")
 
 
 LABEL_TEXT = {"hand": "hand", "llm": "LLM (unvalidated)"}
 
 
 def exposure_page() -> None:
-    st.title("Exposure map")
-    st.caption("Markets that bear on the decision, by factor. Factors are ordered by total trust. "
-               "LLM-written labels are not validated; hand labels are.")
+    masthead(
+        "Markets",
+        "Exposure map",
+        "Markets that bear on the decision, by factor. Factors are ordered by total trust. "
+        "LLM-written labels are not validated; hand labels are.",
+    )
     try:
         views = market_views()
     except ApiError as e:
@@ -314,7 +451,7 @@ def exposure_page() -> None:
         "YES means": f"{v['label']['factor']} {v['label']['yes_moves_factor']}",
         "Mid": num((v.get("trust") or {}).get("mid")), "Trust": num((v.get("trust") or {}).get("score")),
         "Stale": "yes" if v.get("stale") else "no", "Label": LABEL_TEXT.get(v["label"]["label_source"], "?"),
-    } for v in views], hide_index=True, use_container_width=True)
+    } for v in views], hide_index=True, width="stretch")
 
 
 REPLAY_FIRST_DAY = date(2026, 7, 1)
@@ -323,9 +460,12 @@ REPLAY_TIME_UTC = clock_time(20, 0)     # after the US close, so that day's fili
 
 
 def replay_page() -> None:
-    st.title("Replay")
-    st.caption("Run the same question as of an earlier time. Only data visible then is used; "
-               "backfilled quotes have capped trust and the run says so (BACKFILL_INPUTS).")
+    masthead(
+        "History",
+        "Replay",
+        "Run the same question as of an earlier time. Only data visible then is used; "
+        "backfilled quotes have capped trust and the run says so (BACKFILL_INPUTS).",
+    )
     try:
         tickers = [c["ticker"] for c in companies()]
     except ApiError:
@@ -336,7 +476,7 @@ def replay_page() -> None:
                     value=REPLAY_DEFAULT_DAY, format="YYYY-MM-DD")
     as_of = min(datetime.combine(day, REPLAY_TIME_UTC, tzinfo=timezone.utc), datetime.now(timezone.utc))
     st.warning(f"Replay as of {as_of:%Y-%m-%d %H:%M} UTC: later data is invisible to this run.")
-    if not st.button("Replay"):
+    if not st.button("Replay", type="primary"):
         return
     body = {"ticker": ticker, "as_of": as_of.isoformat().replace("+00:00", "Z"), "note_size_usd_m": 1000.0,
             "tenor_years": 7, "coupon_spread_bp": 150.0, "coverage_threshold": 3.0, "fuel_passthrough": 1.0,
@@ -347,8 +487,11 @@ def replay_page() -> None:
 
 
 def run_page() -> None:
-    st.title("Market-implied scenario run")
-    st.caption("A conditional answer given market-implied odds and stated assumptions. Not a forecast or trading signal.")
+    masthead(
+        "Desk",
+        "Market-implied scenario run",
+        "A conditional answer given market-implied odds and stated assumptions. Not a forecast or trading signal.",
+    )
     body = run_form()
     result = submit(body) if body else None
     if result is not None:
@@ -367,8 +510,10 @@ PAGES = {"Run": run_page, "Exposure map": exposure_page, "Peers": peers_page, "A
 
 
 def main() -> None:
-    st.set_page_config(page_title="AirScen", layout="wide")
-    page = st.sidebar.radio("Page", list(PAGES))
+    st.set_page_config(page_title="AirScen", layout="wide", initial_sidebar_state="expanded")
+    apply_theme()
+    st.sidebar.html('<p class="mark">AirScen</p><p class="mark-sub">Scenario desk</p>')
+    page = st.sidebar.radio("Page", list(PAGES), label_visibility="collapsed")
     health_banner()
     PAGES[page]()
 

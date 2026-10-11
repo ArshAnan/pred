@@ -38,6 +38,9 @@ def test_july10_replay_uses_backfill_and_states_the_realised_quarter():
     assert "hold coverage P10" in text
     assert "June-quarter facts" in text
     assert "July 10 DGS10" in text
+    assert "4.54" in text
+    assert "6.04%" in text
+    assert "new note is excluded" not in text
     assert "coverage grid not computed" not in text
     wti = next(line for line in lines if line.startswith("WTI P10"))
     parts = wti.split()

@@ -7,6 +7,10 @@ AGENTS.md
 /data/
 /logs/
 
+# TypeScript app
+frontend/node_modules/
+frontend/dist/
+
 # Python environments and build artifacts
 __pycache__/
 *.py[cod]

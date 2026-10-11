@@ -17,7 +17,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any, Optional
 
 from airscen import factors, scenario, trust
-from airscen.brief import brief_problems, llm_brief, template_brief
+from airscen.brief import brief_problems, llm_brief, repair_brief, template_brief
 from airscen.types import (
     AirScenError, Basis, Brief, DataError, Fact, Factor, MarketMeta, MarketView, Metric, PeerResult, RequestError, RunRequest,
     RunResult, RunSummary, ScenarioInputs, Snapshot, SourceError, StoreError, TrustResult, Venue,
@@ -129,6 +129,18 @@ class RunService:
             self.repo.update_run_brief(run_id, None, "failed")
             return
         problems = brief_problems(md, run, facts)
+        if any(item.startswith("numbers not in the input") for item in problems):
+            try:
+                repaired = repair_brief(md, problems, run, self.llm, facts)
+            except Exception:
+                log.exception("brief repair for %s failed", run_id)
+                repaired = ""
+            if repaired and not brief_problems(repaired, run, facts):
+                self.repo.update_run_brief(run_id, repaired, "ready")
+                return
+            if repaired:
+                again = brief_problems(repaired, run, facts)
+                log.warning("brief repair for %s still rejected: %s", run_id, "; ".join(again))
         if problems:
             log.warning("brief for %s rejected: %s", run_id, "; ".join(problems))
             self.repo.update_run_brief(run_id, None, "rejected")

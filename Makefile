@@ -30,13 +30,14 @@ UI_PORT ?= 8501
 PYTEST_ARGS ?=
 
 .DEFAULT_GOAL := help
-.PHONY: help setup api ui test ingest backfill flip warm eval
+.PHONY: help setup api ui web test ingest backfill flip warm eval
 
 help:
 	@echo Targets:
 	@echo   setup     create .venv, install requirements and the package with dev extras, copy .env.example to .env
 	@echo   api       start the API server on $(API_HOST):$(API_PORT), one worker
 	@echo   ui        start Streamlit on $(UI_HOST):$(UI_PORT)
+	@echo   web       start the TypeScript app on 127.0.0.1:5173 (needs make api)
 	@echo   test      run pytest, extra flags via PYTEST_ARGS=...
 	@echo   ingest    fetch markets, filings and macro through the API, needs make api running
 	@echo   backfill  backfill quotes for a replay window, usage: make backfill WINDOW=2026-07-01..2026-07-12
@@ -57,6 +58,9 @@ api:
 
 ui:
 	$(PY) -m streamlit run app.py --server.address $(UI_HOST) --server.port $(UI_PORT)
+
+web:
+	cd frontend && npm run dev -- --host 127.0.0.1 --port 5173
 
 test:
 	$(PY) -m pytest $(PYTEST_ARGS)
