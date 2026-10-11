@@ -54,7 +54,7 @@ Then, with the API running:
 | `make backfill WINDOW=2026-07-01..2026-07-12` | backfill market quotes for a replay window |
 | `make flip` | demo: force a `BREACH_FLIP` alert to Slack (see below) |
 | `make warm [AS_OF=2026-10-11T14:00:00Z]` | ask the demo questions once so the LLM briefs are cached |
-| `make eval` | print the five-check evaluation report |
+| `make eval` | print the five-check evaluation report (lane B) |
 | `make test` | run all tests |
 
 `make api` runs `airscen.main:app`, which wires every lane together. `airscen.api:app` alone also starts, without the
@@ -118,16 +118,16 @@ that same time. A brief is cached only for the exact question and as-of time; th
 
 ## Status and open items (2026-10-11)
 
-Product lane (C) items C0 to C15 are built and tested. Pieces that wait on other lanes run against clearly labeled
-temporary stand-ins in `tests/product/` and switch over when the real code reaches `main`:
+Lanes A, B and C are on `main` together: the real store and worker (A), the engine, LLM client, labels and
+evaluation (B), and the API, briefs, alerts and app (C). `make test` runs every lane's tests; lane C's also run on
+lane A's real in-memory store (`tests/product/test_real_store.py`).
 
-| Waiting on | Lane | Effect until then |
+Still open:
+
+| Item | Owner | Effect until then |
 | --- | --- | --- |
-| Store and settings loader on `main` (A1 to A4), plus `Repository.runs(ticker, limit)` for `GET /runs` | A | `make api` stops at the placeholder `load_settings()` |
-| `WorkerLoop` (A12, A13) and backfill (A17) | A | `/health` reports the worker as degraded; `make ingest` and `make backfill` say "not wired yet" |
-| CIKs for United and American | A | `Company.cik` is optional, so they list without one |
-| `LLMClient` and `compare_margins` on `main` | B | briefs stay template-only; the Peers page has no margin column yet |
-| `make eval` report | B | runs `python -m airscen.eval`, still a placeholder on `main` |
+| `Repository.runs(ticker, limit)` (newest first) | A | `GET /runs` answers 503 saying so; everything else works |
+| `tests/data/test_adapters.py` reads a fixture without `encoding="utf-8"` | A | that one test fails on Windows |
+| Margins on the Peers page (`compare_margins` plus a margin field on `PeerResult`) | B + C | no margin column yet |
+| `CLAUDE.md` section 7 still names `airscen.api:app` | team | `make api` runs `airscen.main:app`, which wires every lane |
 | Two demo rehearsals (C16) | all | to do together |
-
-Also: `CLAUDE.md` section 7 still names `airscen.api:app`; the team should update it to `airscen.main:app`.
