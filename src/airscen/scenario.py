@@ -6,8 +6,10 @@ because this module cannot import factors.
 """
 
 import math
+from dataclasses import dataclass
 
 from airscen.types import (
+    Basis,
     DataError,
     FuelCurve,
     Metric,
@@ -191,3 +193,35 @@ def run_scenarios(inputs: ScenarioInputs) -> tuple[list[ScenarioRow], ScenarioSu
         liquidity_ok=liquidity_ok,
     )
     return rows, summary
+
+
+@dataclass(frozen=True)
+class MarginComparison:
+    """Operating margin for each company, on one shared revenue basis."""
+
+    basis: Basis
+    margins: dict[str, float]
+    flags: list[str]
+
+
+def compare_margins(companies: list[tuple[str, dict]]) -> MarginComparison:
+    """Compare operating income over revenue.
+
+    Adjusted revenue is used when every company in the comparison has it.
+    Otherwise the comparison is GAAP and the result carries
+    MARGIN_BASIS_MISMATCH. Margin is operating income divided by that revenue.
+    """
+    have_adjusted = bool(companies) and all(
+        Metric.REVENUE_ADJUSTED in book for _, book in companies
+    )
+    basis = Basis.ADJUSTED if have_adjusted else Basis.GAAP
+    revenue_metric = Metric.REVENUE_ADJUSTED if have_adjusted else Metric.REVENUE_GAAP
+    flags = [] if have_adjusted else ["MARGIN_BASIS_MISMATCH"]
+    margins: dict[str, float] = {}
+    for ticker, book in companies:
+        revenue = book.get(revenue_metric)
+        income = book.get(Metric.OPERATING_INCOME)
+        if revenue is None or income is None or revenue.value == 0:
+            continue
+        margins[ticker] = income.value / revenue.value
+    return MarginComparison(basis=basis, margins=margins, flags=flags)

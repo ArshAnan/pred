@@ -1,15 +1,19 @@
 """Candidate markets and labels.
 
 hand_labels is the function Lane A's worker calls during discovery.
-label() stays unimplemented until B10.
+label() asks the LLM for markets that are not in the hand-label file.
+A hand label always wins. An LLM failure leaves the market unlabeled.
 """
 
+import hashlib
+import json
 import re
+from datetime import timezone
 from pathlib import Path
 
 import yaml
 
-from airscen.types import Factor, MarketKind, MarketLabel, MarketMeta, Venue
+from airscen.types import Factor, LLMError, MarketKind, MarketLabel, MarketMeta, Venue
 
 _WORD = re.compile(r"\b(?:wti|crude|brent|fomc|cpi|pce|inflation|hormuz)\b", re.IGNORECASE)
 _PHRASES = (
@@ -37,9 +41,101 @@ def candidates(markets: list[MarketMeta]) -> list[MarketMeta]:
     return chosen
 
 
-def label(meta: MarketMeta) -> MarketLabel | None:
-    """Return a label, or None when labeling fails and the market stays unlabeled."""
-    raise NotImplementedError("LLM labeling is B10")
+_LABEL_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["relevant", "mechanism"],
+    "properties": {
+        "relevant": {"type": "boolean"},
+        "factor": {
+            "type": ["string", "null"],
+            "enum": ["fuel", "rates", "inflation", "demand", "geopolitics", None],
+        },
+        "yes_moves_factor": {"type": ["string", "null"], "enum": ["up", "down", None]},
+        "mechanism": {"type": "string"},
+        "citation": {"type": ["string", "null"]},
+    },
+}
+_LABEL_SYSTEM = (
+    "Label one prediction market for an airline credit scenario. "
+    "Return only JSON. relevant is true only for fuel, rates, inflation, demand, or geopolitics. "
+    "mechanism is one sentence of at most 200 characters."
+)
+
+
+def content_hash(meta: MarketMeta) -> str:
+    """Hash of the title, rules, and close time. A new hash means the market changed."""
+    close = ""
+    if meta.close_time is not None:
+        ts = meta.close_time
+        if ts.tzinfo is None or ts.utcoffset() is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        close = ts.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    raw = json.dumps(
+        {"close_time": close, "rules": meta.rules, "title": meta.title},
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    )
+    return hashlib.sha256(raw.encode()).hexdigest()
+
+
+def label(meta: MarketMeta, llm=None, hands=None) -> MarketLabel | None:
+    """Return a label, or None when labeling fails and the market stays unlabeled.
+
+    A hand label for this venue and market id is returned without a model call.
+    Otherwise the model is asked for a MarketLabel. The prompt is the hashed
+    content, so a repeat of the same title, rules, and close time hits the
+    LLM cache. label_source on a model label is llm.
+    """
+    hand = _hand_for(hands, meta)
+    if hand is not None:
+        return hand
+    if llm is None:
+        return None
+    user = json.dumps(
+        {
+            "title": meta.title,
+            "rules": meta.rules,
+            "close_time": "" if meta.close_time is None else meta.close_time.isoformat(),
+        },
+        sort_keys=True,
+    )
+    try:
+        raw = llm.complete_json("label_market", _LABEL_SYSTEM, user, _LABEL_SCHEMA, content_hash(meta))
+    except LLMError:
+        return None
+    return _as_label(raw)
+
+
+def _hand_for(hands, meta: MarketMeta) -> MarketLabel | None:
+    if not hands:
+        return None
+    row = hands.get((meta.venue, meta.market_id))
+    if row is None:
+        return None
+    if isinstance(row, tuple):
+        return row[0]
+    return row
+
+
+def _as_label(raw) -> MarketLabel | None:
+    if not isinstance(raw, dict):
+        return None
+    factor = raw.get("factor") or None
+    direction = raw.get("yes_moves_factor") or None
+    citation = raw.get("citation") or None
+    try:
+        return MarketLabel(
+            relevant=bool(raw.get("relevant")),
+            factor=Factor(factor) if factor else None,
+            yes_moves_factor=direction if direction in ("up", "down") else None,
+            mechanism=str(raw.get("mechanism") or "")[:200],
+            citation=str(citation) if citation else None,
+            label_source="llm",
+        )
+    except (ValueError, TypeError):
+        return None
 
 
 def hand_labels(path: str) -> dict[tuple[Venue, str], tuple[MarketLabel, dict]]:

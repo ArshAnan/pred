@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from airscen.scout import candidates, hand_labels, label
+from airscen.scout import candidates, content_hash, hand_labels, label
 from airscen.types import Factor, MarketKind, MarketMeta, Venue
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -77,6 +77,47 @@ def test_checked_in_shortlist_covers_the_fed_meeting_and_wti_ladder():
     assert "KXFEDDECISION-26OCT-H25" in {market_id for _, market_id in loaded}
 
 
-def test_llm_labeling_is_still_b10():
-    with pytest.raises(NotImplementedError, match="B10"):
-        label(_market("M", "WTI"))
+def test_hand_label_wins_and_the_model_is_not_called():
+    meta = _market("KXFEDDECISION-26OCT-H25", "Will the Fed hike 25bp?")
+    loaded = hand_labels(str(ROOT / "hand_labels.yaml"))
+
+    class Boom:
+        def complete_json(self, *args, **kwargs):
+            raise AssertionError("a hand label must not call the model")
+
+    labeled = label(meta, llm=Boom(), hands=loaded)
+    assert labeled is not None
+    assert labeled.label_source == "hand"
+    assert labeled.factor.value == "rates"
+
+
+def test_llm_label_is_cached_with_the_content_and_a_failure_stays_unlabeled():
+    from airscen.llm import LLMClient
+    from airscen.types import LLMError
+    from tests.fakes.fake_llm import ScriptedProvider, memory_cache
+
+    body = (
+        '{"relevant": true, "factor": "fuel", "yes_moves_factor": "up", '
+        '"mechanism": "A higher settlement raises jet-fuel cost.", "citation": null}'
+    )
+    provider = ScriptedProvider([body])
+    cache_get, cache_put, _ = memory_cache()
+    client = LLMClient(cache_get, cache_put, chain=["snowflake"], providers={"snowflake": provider}, env={})
+    meta = _market("OTHER", "WTI crude above 90")
+    first = label(meta, llm=client)
+    second = label(meta, llm=client)
+    assert first == second
+    assert first.label_source == "llm"
+    assert first.factor.value == "fuel"
+    assert len(provider.calls) == 1
+    assert content_hash(meta) != content_hash(_market("OTHER", "WTI crude above 91"))
+
+    failing = ScriptedProvider([LLMError("down", code="E_LLM_UNAVAILABLE")])
+    bad = LLMClient(
+        cache_get,
+        cache_put,
+        chain=["snowflake"],
+        providers={"snowflake": failing},
+        env={},
+    )
+    assert label(_market("NEW", "Brent crude"), llm=bad) is None
