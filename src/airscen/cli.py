@@ -50,7 +50,8 @@ def flip(client: ApiClient, low: float = 3.0, high: float = 6.0) -> int:
     flips = [a for a in alerts if a["rule"] == "BREACH_FLIP"]
     for a in alerts:
         delivered = "sent to Slack" if a["status"] == "sent" else "not delivered (saved in the feed as failed)"
-        print(f"{a['rule']} {a['company']}: {a['payload'].get('before')} -> {a['payload'].get('after')}, {delivered}")
+        before, after = (_pct(a["payload"].get(k)) for k in ("before", "after"))
+        print(f"{a['rule']} {a['company']}: {before} -> {after}, {delivered}")
     if not flips:
         print("No BREACH_FLIP: the answer did not cross the threshold from below, or the alert is cooling down (60 min).")
         return 1
@@ -109,6 +110,10 @@ def main(argv: list[str] | None = None, sleep: Callable[[float], None] = time.sl
     if args.command == "ingest":
         return ingest(client, args.sources, args.tickers, wait=not args.no_wait, sleep=sleep)
     return backfill(client, args.window, args.tickers, wait=not args.no_wait, sleep=sleep)
+
+
+def _pct(v) -> str:
+    return f"{v * 100:.1f}%" if isinstance(v, (int, float)) else "n/a"
 
 
 def _csv(value: str) -> list[str]:
