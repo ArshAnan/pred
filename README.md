@@ -72,6 +72,7 @@ background worker.
 - **Exposure map**: the markets that bear on the decision, by factor, with direction and trust. LLM-written labels are
   marked "LLM (unvalidated)".
 - **Peers**: the same question for United and American with the same fuel curve and Fed odds but their own financials, plus operating margin (adjusted revenue when every company has it).
+- **Sensitivity**: for the last run, moves note size, coupon spread, coverage threshold, and fuel pass-through one at a time and shows which one crosses the 20% breach-probability alert line. The fuel curve and Fed odds stay at that run.
 - **Alerts**: the alert feed (undelivered alerts are marked) and a "Send test alert" button.
 - **Replay**: slide `as_of` back (default 2026-07-10) and rerun with only the data visible then.
 

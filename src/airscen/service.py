@@ -18,10 +18,11 @@ from typing import Any, Optional
 
 from airscen import factors, proof, scenario, trust
 from airscen.brief import brief_problems, llm_brief, repair_brief, template_brief
+from airscen.sensitivity import sweep_assumptions
 from airscen.types import (
     AirScenError, Basis, Brief, DataError, DecisionProof, Fact, Factor, InputTrace, MarketMeta, MarketView, Metric,
-    PeerResult, RequestError, RunRequest, RunResult, RunSummary, ScenarioInputs, Snapshot, SourceError, StoreError,
-    TrustResult, Venue,
+    PeerResult, RequestError, RunRequest, RunResult, RunSummary, ScenarioInputs, SensitivityReport, Snapshot,
+    SourceError, StoreError, TrustResult, Venue,
 )
 
 log = logging.getLogger("airscen.service")
@@ -57,9 +58,7 @@ class RunService:
         self.clock = clock or (lambda: datetime.now(timezone.utc))
 
     def create_run(self, req: RunRequest) -> RunResult:
-        self._check_ticker(req.ticker)
-        now = self.clock()
-        built = self._build(req, now, f"run_{uuid.uuid4().hex[:12]}")
+        built = self._build(req, f"run_{uuid.uuid4().hex[:12]}")
         status = "pending" if self.llm else "skipped"
         result = built.result.model_copy(update={"brief": Brief(template_md="", llm_md=None, llm_status=status)})
         result = result.model_copy(update={"brief": result.brief.model_copy(
@@ -72,54 +71,35 @@ class RunService:
         stored = self.get_run(run_id)
         facts, _ = self.repo.latest_facts(stored.company, stored.as_of)
         try:
-            self._check_ticker(stored.company)
-            built = self._build(stored.inputs, stored.created_at, stored.run_id)
+            built = self._build(stored.inputs, stored.run_id)
         except DataError as e:
             return proof.undecidable(stored, facts, e.message)
         return proof.decide(stored, built.result, built.basis, built.traces, facts)
 
-    def _build(self, req: RunRequest, now: datetime, run_id: str) -> "_Built":
+    def _build(self, req: RunRequest, run_id: str) -> "_Built":
         """One as-of read, the engine, and the input trace. Does not save or write the brief."""
-        as_of = req.as_of or now  # one as_of for every read below (DD-4)
-        focal = self._company_inputs(req.ticker, as_of)
-        dgs10 = self._latest_dgs10(as_of)
-        missing = focal.missing_facts + ([DGS10] if dgs10 is None else []) + ([WTI] if focal.wti_ref is None else [])
-        if missing:
-            raise DataError(
-                f"Required inputs are missing for {req.ticker}: {', '.join(missing)}",
-                code="E_MISSING_FACT", details={"missing": missing},
-            )
-
-        market_flags: list[str] = []
-        rate_quotes, fuel_quotes = self._factor_quotes(as_of, market_flags)
-        rates, rate_flags = factors.rate_states(rate_quotes)
-        curve, fuel_flags = factors.fuel_curve(fuel_quotes, as_of, self.settings.fuel.horizon_days)
-        flags = focal.flags + market_flags + rate_flags + fuel_flags + list(ALWAYS_FLAGS)
-        coupon = (dgs10 + req.coupon_spread_bp / 100) / 100
+        prepared = self._prepare(req)
 
         def scenarios(company: _CompanyInputs):
             # Peers share the request, fuel curve and rate states; facts and W_bar are their own (LLD section 6).
-            return scenario.run_scenarios(ScenarioInputs(
-                company=company.ticker, as_of=as_of, note_size_usd_m=req.note_size_usd_m,
-                tenor_years=req.tenor_years, coupon=coupon,
-                coverage_threshold=req.coverage_threshold, fuel_passthrough=req.fuel_passthrough,
-                baseline=company.baseline, wti_ref=company.wti_ref, rates=rates, fuel=curve,
-            ))
+            return scenario.run_scenarios(self._inputs(req, prepared, company))
 
-        rows, summary = scenarios(focal)
+        rows, summary = scenarios(prepared.focal)
         if req.include_peers:
-            peers, peer_books = self._peers(req, focal, as_of, scenarios)
+            peers, peer_books = self._peers(req, prepared.focal, prepared.as_of, scenarios)
         else:
             peers, peer_books = [], []
-        peers, focal_margin, margin_flags = self._with_margins(focal, peers, peer_books)
-        flags = list(dict.fromkeys([*flags, *margin_flags]))
+        peers, focal_margin, margin_flags = self._with_margins(prepared.focal, peers, peer_books)
+        flags = list(dict.fromkeys([*prepared.flags, *margin_flags]))
+        focal = prepared.focal
         result = RunResult(
-            run_id=run_id, company=req.ticker, as_of=as_of, created_at=now,
-            inputs=req.model_copy(update={"as_of": as_of}), rows=rows, summary=summary, peers=peers,
-            flags=flags, data_version=self.repo.data_version(as_of),
+            run_id=run_id, company=req.ticker, as_of=prepared.as_of, created_at=prepared.now,
+            inputs=req.model_copy(update={"as_of": prepared.as_of}), rows=rows, summary=summary, peers=peers,
+            flags=flags, data_version=self.repo.data_version(prepared.as_of),
             brief=Brief(template_md="", llm_md=None, llm_status="skipped"),
             operating_margin=focal_margin,
         )
+        rates, curve = prepared.rates, prepared.curve
         rates_missing = rates is None or rates.p_hike is None
         liquidity = focal.baseline.get(Metric.LIQUIDITY)
         current = focal.baseline.get(Metric.DEBT_CURRENT)
@@ -130,8 +110,8 @@ class RunService:
             debt=focal.baseline[Metric.DEBT_TOTAL].value,
             variable=focal.baseline[Metric.VARIABLE_DEBT_SHARE].value,
             wti_ref=focal.wti_ref,
-            coupon=coupon,
-            dgs10=dgs10,
+            coupon=(prepared.dgs10 + req.coupon_spread_bp / 100) / 100,
+            dgs10=prepared.dgs10,
             hike_bp=25 if rates is None else rates.delta_hike_bp,
             rates_missing=rates_missing,
             pi_hike=0.0 if rates_missing else rates.p_hike,
@@ -139,8 +119,25 @@ class RunService:
             liquidity=None if liquidity is None else liquidity.value,
             debt_current=None if current is None else current.value,
         )
-        traces = self._traces(focal, as_of, dgs10, rate_quotes, fuel_quotes)
+        traces = self._traces(focal, prepared.as_of, prepared.dgs10, prepared.rate_quotes, prepared.fuel_quotes)
         return _Built(result, basis, traces)
+
+    def sensitivity(self, run_id: str) -> SensitivityReport:
+        """Recompute the saved question while moving one stated assumption at a time.
+
+        Reads use the run's as_of, so the fuel curve and Fed odds match the run.
+        The alert line is `alerts.breach_threshold` from settings.
+        """
+        run = self.get_run(run_id)
+        prepared = self._prepare(run.inputs)
+        return sweep_assumptions(
+            self._inputs(run.inputs, prepared, prepared.focal),
+            dgs10=prepared.dgs10,
+            spread_bp=run.inputs.coupon_spread_bp,
+            line=float(self.settings.alerts.breach_threshold),
+            run_id=run.run_id,
+            company=run.company,
+        )
 
     def get_run(self, run_id: str) -> RunResult:
         run = self.repo.get_run(run_id)
@@ -233,6 +230,37 @@ class RunService:
     def _check_ticker(self, ticker: str) -> None:
         if ticker not in {c.ticker for c in self.settings.companies}:
             raise RequestError(f"Unknown ticker {ticker}", code="E_NOT_FOUND", details={"ticker": ticker})
+
+    def _prepare(self, req: RunRequest) -> "_Prepared":
+        """Facts, coupon yield, fuel curve and rate states at one as_of."""
+        self._check_ticker(req.ticker)
+        now = self.clock()
+        as_of = req.as_of or now  # one as_of for every read below (DD-4)
+        focal = self._company_inputs(req.ticker, as_of)
+        dgs10 = self._latest_dgs10(as_of)
+        missing = focal.missing_facts + ([DGS10] if dgs10 is None else []) + ([WTI] if focal.wti_ref is None else [])
+        if missing:
+            raise DataError(
+                f"Required inputs are missing for {req.ticker}: {', '.join(missing)}",
+                code="E_MISSING_FACT", details={"missing": missing},
+            )
+        market_flags: list[str] = []
+        rate_quotes, fuel_quotes = self._factor_quotes(as_of, market_flags)
+        rates, rate_flags = factors.rate_states(rate_quotes)
+        curve, fuel_flags = factors.fuel_curve(fuel_quotes, as_of, self.settings.fuel.horizon_days)
+        flags = focal.flags + market_flags + rate_flags + fuel_flags + list(ALWAYS_FLAGS)
+        return _Prepared(
+            now=now, as_of=as_of, focal=focal, dgs10=dgs10, rates=rates, curve=curve, flags=flags,
+            rate_quotes=rate_quotes, fuel_quotes=fuel_quotes,
+        )
+
+    def _inputs(self, req: RunRequest, prepared: "_Prepared", company: "_CompanyInputs") -> ScenarioInputs:
+        return ScenarioInputs(
+            company=company.ticker, as_of=prepared.as_of, note_size_usd_m=req.note_size_usd_m,
+            tenor_years=req.tenor_years, coupon=(prepared.dgs10 + req.coupon_spread_bp / 100) / 100,
+            coverage_threshold=req.coverage_threshold, fuel_passthrough=req.fuel_passthrough,
+            baseline=company.baseline, wti_ref=company.wti_ref, rates=prepared.rates, fuel=prepared.curve,
+        )
 
     # ---- inputs ----
 
@@ -412,6 +440,19 @@ class _Built:
     result: RunResult
     basis: proof.MathBasis
     traces: list[InputTrace]
+
+
+@dataclass(frozen=True)
+class _Prepared:
+    now: datetime
+    as_of: datetime
+    focal: "_CompanyInputs"
+    dgs10: float
+    rates: Any
+    curve: Any
+    flags: list[str]
+    rate_quotes: list
+    fuel_quotes: list
 
 
 @dataclass(frozen=True)
