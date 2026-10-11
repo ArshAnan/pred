@@ -50,8 +50,16 @@ def _default_repo(settings: Any) -> Any:
     return store.Repository(DB_PATH)
 
 
-def _no_job_runners(settings: Any, repo: Any) -> dict[str, service.JobRunner]:
-    return {}  # C8 wires lane A's WorkerLoop ticks and backfill here
+def _worker_runners(worker: Any) -> dict[str, service.JobRunner]:
+    """Ingest jobs run the worker's own ticks (D5). Ticks take no arguments, so tickers are not
+    narrowed yet; backfill (lane A, A17) is wired once the worker exposes it."""
+    if worker is None:
+        return {}
+    return {
+        "markets": lambda tickers, window: worker.tick_markets(),
+        "filings": lambda tickers, window: worker.tick_filings(),
+        "macro": lambda tickers, window: worker.tick_macro(),
+    }
 
 
 def create_app(
@@ -59,15 +67,21 @@ def create_app(
     repo_factory: Callable[[Any], Any] = _default_repo,
     clock: Callable[[], datetime] | None = None,
     monotonic: Callable[[], float] = time.monotonic,
-    job_runners: Callable[[Any, Any], dict[str, service.JobRunner]] = _no_job_runners,
+    job_runners: Callable[[Any, Any], dict[str, service.JobRunner]] | None = None,
+    worker_factory: Callable[[Any, Any], Any] | None = None,
 ) -> FastAPI:
-    """Build the app. Tests pass fakes and clocks; the real app uses lane A's loader and Repository."""
+    """Build the app. Tests pass fakes and clocks; the real app uses lane A's loader and Repository.
+
+    worker_factory(settings, repo) returns lane A's WorkerLoop (CP0_DECISIONS D5). It runs inside
+    this one API process (DD-2): started here, stopped on shutdown, its status shown on /health.
+    """
     now = clock or (lambda: datetime.now(timezone.utc))
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         app.state.settings = settings_loader()  # ConfigError propagates: refuse to start
-        app.state.repo = app.state.service = None
+        app.state.repo = app.state.service = app.state.worker = None
+        app.state.worker_failed = False
         try:
             repo = repo_factory(app.state.settings)
             repo.migrate()
@@ -75,11 +89,29 @@ def create_app(
             app.state.service = service.RunService(repo=repo, settings=app.state.settings, clock=now)
         except StoreError as e:
             _log("error", "db_unavailable", error_code=e.code, message=e.message)
-        app.state.jobs = service.IngestJobs(job_runners(app.state.settings, app.state.repo), clock=now)
-        yield
+        if worker_factory is not None and app.state.repo is not None:
+            try:
+                worker = worker_factory(app.state.settings, app.state.repo)
+                worker.start()
+                app.state.worker = worker
+            except Exception as e:  # keep serving runs; /health reports the worker as degraded
+                app.state.worker_failed = True
+                log.exception("worker failed to start")
+                _log("error", "worker_start_failed", message=str(e))
+        runners = job_runners(app.state.settings, app.state.repo) if job_runners else _worker_runners(app.state.worker)
+        app.state.jobs = service.IngestJobs(runners, clock=now)
+        try:
+            yield
+        finally:
+            if app.state.worker is not None:
+                try:
+                    app.state.worker.stop()
+                except Exception:
+                    log.exception("worker failed to stop")
 
     app = FastAPI(title="AirScen API", version="1", lifespan=lifespan)
-    app.state.settings = app.state.repo = app.state.service = None
+    app.state.settings = app.state.repo = app.state.service = app.state.worker = None
+    app.state.worker_failed = False
     app.state.now = now
     app.state.idempotency = _IdempotencyKeys(IDEMPOTENCY_TTL_S, monotonic)
     app.include_router(_router())
@@ -97,13 +129,15 @@ def _router() -> APIRouter:
 
     @router.get("/health", response_model=HealthStatus)
     def health(request: Request) -> HealthStatus:
-        # In-memory only; never calls an outside service. Worker and source status arrive in C8.
-        if request.app.state.repo is None:
+        # In-memory only; never calls an outside service. Sources and ticks come from the worker.
+        state = request.app.state
+        if state.repo is None:
             raise StoreError("The database is unavailable")
-        settings = request.app.state.settings
+        sources, worker = _worker_status(state)
+        degraded = worker.degraded or any(s.status != "ok" for s in sources.values())
         return HealthStatus(
-            status="ok", db="ok", sources={},
-            llm=LLMStatus(mode=settings.llm_mode), worker=WorkerStatus(),
+            status="degraded" if degraded else "ok", db="ok", sources=sources,
+            llm=LLMStatus(mode=state.settings.llm_mode), worker=worker,
         )
 
     @router.get("/companies", response_model=list[Company])
@@ -225,6 +259,19 @@ class JobStatus(BaseModel):
     errors: list[dict[str, str]]
     started_at: datetime
     finished_at: Optional[datetime] = None
+
+
+def _worker_status(state: Any) -> tuple[dict, WorkerStatus]:
+    """(per-source status, worker status) from the running worker; degraded if it failed or errors."""
+    if state.worker_failed:
+        return {}, WorkerStatus(degraded=True)
+    if state.worker is None:
+        return {}, WorkerStatus()
+    try:
+        return state.worker.status()
+    except Exception:
+        log.exception("worker status failed")
+        return {}, WorkerStatus(degraded=True)
 
 
 def _service(request: Request) -> "service.RunService":
