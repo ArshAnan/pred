@@ -1,16 +1,23 @@
 """Load `.env` and `config.yaml` into one Settings object.
 
 The model is the CP0 contract (LLD section 9, CP0_DECISIONS R4).
-`load_settings()` itself is lane A item A1: it must raise ConfigError
-when SEC_USER_AGENT is missing. Unknown keys inside a section are ignored
-so another lane can add a key without editing this file.
+`load_settings()` raises ConfigError when SEC_USER_AGENT is missing.
+Unknown keys inside a section are ignored so another lane can add a key
+without editing this file. An unknown top-level section is an error.
 """
 
 from __future__ import annotations
 
+import os
+from collections.abc import Mapping
+from pathlib import Path
 from typing import Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+import yaml
+from dotenv import load_dotenv
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
+
+from airscen.types import ConfigError
 
 
 class _Section(BaseModel):
@@ -134,5 +141,112 @@ class Settings(BaseModel):
     llm: LLMConfig = Field(default_factory=LLMConfig)
 
 
-def load_settings() -> Settings:
-    raise NotImplementedError
+_ENV_FIELDS = {
+    "SEC_USER_AGENT": "sec_user_agent",
+    "FRED_API_KEY": "fred_api_key",
+    "ALPACA_KEY_ID": "alpaca_key_id",
+    "ALPACA_SECRET_KEY": "alpaca_secret_key",
+    "SLACK_WEBHOOK_URL": "slack_webhook_url",
+    "SNOWFLAKE_ACCOUNT": "snowflake_account",
+    "SNOWFLAKE_PAT": "snowflake_pat",
+    "GEMINI_API_KEY": "gemini_api_key",
+    "OLLAMA_HOST": "ollama_host",
+    "LLM_MODE": "llm_mode",
+    "LLM_CHAIN": "llm_chain",
+    "API_HOST": "api_host",
+    "API_PORT": "api_port",
+    "API_BASE_URL": "api_base_url",
+    "API_TOKEN": "api_token",
+    "KALSHI_API_KEY_ID": "kalshi_api_key_id",
+    "KALSHI_PRIVATE_KEY_PATH": "kalshi_private_key_path",
+}
+
+
+def _discover_config(start: Path) -> Path:
+    for directory in [start, *start.parents]:
+        candidate = directory / "config.yaml"
+        if candidate.is_file():
+            return candidate
+    raise ConfigError("config.yaml was not found; set it next to the working directory")
+
+
+def _env_overlay(source: Mapping[str, str]) -> dict:
+    overlay: dict = {}
+    for env_name, field in _ENV_FIELDS.items():
+        if env_name not in source:
+            continue
+        raw = source[env_name]
+        if raw is None or str(raw).strip() == "":
+            continue
+        overlay[field] = raw
+    return overlay
+
+
+def _validation_message(exc: ValidationError) -> str:
+    parts = []
+    for err in exc.errors():
+        loc = ".".join(str(item) for item in err.get("loc", ())) or "settings"
+        parts.append(f"{loc}: {err.get('msg', 'invalid')}")
+    return "Invalid settings: " + "; ".join(parts)
+
+
+def _provider_ready(name: str, settings: Settings) -> bool:
+    if name == "snowflake":
+        return bool(settings.snowflake_account.strip() and settings.snowflake_pat.strip())
+    if name == "gemini":
+        return bool(settings.gemini_api_key.strip())
+    if name == "ollama":
+        return bool(settings.ollama_host.strip())
+    raise ConfigError(f"Unknown LLM provider in LLM_CHAIN: {name}")
+
+
+def _check_llm(settings: Settings) -> None:
+    if settings.llm_mode != "live":
+        return
+    providers = [part.strip() for part in settings.llm_chain.split(",") if part.strip()]
+    if not providers:
+        raise ConfigError("LLM_CHAIN is empty while LLM_MODE is live")
+    if any(_provider_ready(name, settings) for name in providers):
+        return
+    names = ", ".join(providers)
+    raise ConfigError(
+        f"LLM_MODE is live but no provider in LLM_CHAIN has credentials: {names}"
+    )
+
+
+def load_settings(
+    config_path: Path | str | None = None,
+    env_file: Path | str | None = None,
+    environ: Mapping[str, str] | None = None,
+) -> Settings:
+    """Read config.yaml and environment variables into Settings.
+
+    `environ` is for tests. When it is omitted, values come from the process
+    environment after `.env` is loaded without overriding variables already set.
+    """
+    path = Path(config_path) if config_path is not None else _discover_config(Path.cwd())
+    if not path.is_file():
+        raise ConfigError(f"config.yaml not found at {path}")
+    raw = yaml.safe_load(path.read_text()) or {}
+    if not isinstance(raw, dict):
+        raise ConfigError("config.yaml must be a mapping")
+
+    if environ is None:
+        dotenv_path = Path(env_file) if env_file is not None else path.parent / ".env"
+        if dotenv_path.is_file():
+            load_dotenv(dotenv_path, override=False)
+        source: Mapping[str, str] = os.environ
+    else:
+        source = environ
+
+    data = dict(raw)
+    data.update(_env_overlay(source))
+    try:
+        settings = Settings.model_validate(data)
+    except ValidationError as exc:
+        raise ConfigError(_validation_message(exc)) from exc
+
+    if not settings.sec_user_agent.strip():
+        raise ConfigError("SEC_USER_AGENT is required and is not set")
+    _check_llm(settings)
+    return settings
