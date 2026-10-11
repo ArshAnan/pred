@@ -16,7 +16,7 @@ FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "vendors"
 
 
 def _load(name):
-    return json.loads((FIXTURES / name).read_text())
+    return json.loads((FIXTURES / name).read_text(encoding="utf-8"))
 
 
 class FakeClient:
@@ -51,6 +51,8 @@ def test_kalshi_wti_market_is_a_close_above_threshold():
     payload = _load("kalshi_kxwti_markets.json")
     client = FakeClient(pages=[payload, {"markets": []}])
     markets = Kalshi(client).list_markets("KXWTI")
+    assert client.gets[0][1]["series_ticker"] == "KXWTI"
+    assert client.gets[0][1]["status"] == "open"
     first = markets[0]
     assert first.market_id == "KXWTI-26OCT1314-T102.99"
     assert first.kind == MarketKind.CLOSE_ABOVE
@@ -140,7 +142,7 @@ def test_edgar_resolves_airlines_and_caches_the_8k(tmp_path):
             "submissions/CIK": _load("sec_dal_submissions.json"),
             "us-gaap/Assets.json": _load("sec_dal_assets_concept.json"),
         }),
-        document_client=FakeClient(text=(FIXTURES / "sec_dal_8k_2026-10-09.html").read_text()[:200]),
+        document_client=FakeClient(text=(FIXTURES / "sec_dal_8k_2026-10-09.html").read_text(encoding="utf-8")[:200]),
         cache_dir=tmp_path,
     )
     assert edgar.resolve_cik("DAL") == 27904
@@ -185,7 +187,7 @@ def test_gdelt_requests_an_artlist_and_ignores_a_non_article_body():
     assert params["mode"] == "artlist"
     assert params["format"] == "json"
     assert params["maxrecords"] == "3"
-    rate_limit = (FIXTURES / "gdelt_429.txt").read_text()
+    rate_limit = (FIXTURES / "gdelt_429.txt").read_text(encoding="utf-8")
     assert parse_articles(rate_limit) == []
 
 

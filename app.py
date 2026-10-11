@@ -67,6 +67,12 @@ def companies() -> list[dict]:
     return client().get("/companies")
 
 
+@st.cache_data(ttl=30)
+def market_views() -> list[dict]:
+    """Labeled markets. Cached for 30 seconds (LLD Streamlit client rules)."""
+    return client().get("/markets")
+
+
 # ---- page sections ----
 
 def health_banner() -> None:
@@ -206,9 +212,10 @@ def period_end(ticker: str, as_of: datetime) -> str:
 
 
 def peer_rows(result: RunResult, configured: list[str]) -> list[dict[str, str]]:
-    def row(ticker: str, period: str, s, flags: list[str]) -> dict[str, str]:
+    def row(ticker: str, period: str, s, flags: list[str], margin: float | None) -> dict[str, str]:
         return {
             "Company": ticker, "Period end": period, "Breach probability": pct(s.p_breach),
+            "Operating margin": pct(margin),
             "Breakeven WTI, hold / hike": f"{num(s.breakeven_wti_hold)} / {num(s.breakeven_wti_hike)}",
             "Coverage P50 / P90": f"{times(s.coverage_p50)} / {times(s.coverage_p90)}",
             "Liquidity cover": times(s.liquidity_cover), "Flags": ", ".join(flags) or "-",
@@ -216,14 +223,16 @@ def peer_rows(result: RunResult, configured: list[str]) -> list[dict[str, str]]:
 
     as_of = result.as_of.astimezone(timezone.utc)
     rows = [row(result.company, period_end(result.company, as_of), result.summary,
-                [f for f in result.flags if f not in ("CRUDE_ONLY", "RESOLVE_DATE_PROXY")])]
+                [f for f in result.flags if f not in ("CRUDE_ONLY", "RESOLVE_DATE_PROXY")],
+                result.operating_margin)]
     by_ticker = {p.ticker: p for p in result.peers}
     for ticker in configured:
         if ticker in by_ticker:
             p = by_ticker[ticker]
-            rows.append(row(ticker, p.period_end.isoformat(), p.summary, p.flags))
+            rows.append(row(ticker, p.period_end.isoformat(), p.summary, p.flags, p.operating_margin))
         else:
             rows.append({"Company": ticker, "Period end": "-", "Breach probability": NA,
+                         "Operating margin": NA,
                          "Breakeven WTI, hold / hike": NA, "Coverage P50 / P90": NA, "Liquidity cover": NA,
                          "Flags": "no result (missing inputs, or peers not requested)"})
     return rows
@@ -232,7 +241,8 @@ def peer_rows(result: RunResult, configured: list[str]) -> list[dict[str, str]]:
 def peers_page() -> None:
     st.title("Peers")
     st.caption("Same question, fuel curve and Fed odds; each airline's own financials and baseline WTI. "
-               "Margins wait for lane B's margin helper.")
+               "Operating margin uses adjusted revenue when every compared company has it. "
+               "Otherwise the comparison is GAAP and the run carries MARGIN_BASIS_MISMATCH.")
     result = last_run()
     if result is None:
         st.info("Run a question first on the Run page; its peers appear here.")
@@ -287,7 +297,7 @@ def exposure_page() -> None:
     st.caption("Markets that bear on the decision, by factor. Factors are ordered by total trust. "
                "LLM-written labels are not validated; hand labels are.")
     try:
-        views = client().get("/markets")
+        views = market_views()
     except ApiError as e:
         error_banner(e)
         return

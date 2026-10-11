@@ -91,5 +91,8 @@ def test_the_api_end_to_end_on_the_real_store():
         assert len(c.get(P + "/markets/kalshi/WTI-ILLUSTRATIVE-80/history").json()) == 1
         assert c.get(P + "/health").json()["db"] == "ok"
         listed = c.get(P + "/runs")
-    # Lane A's store has no runs() list yet: GET /runs says so instead of crashing.
-    assert listed.status_code == 503 and "Repository.runs" in listed.json()["error"]["message"]
+    assert listed.status_code == 200
+    rows = listed.json()
+    assert rows[0]["run_id"] == created.json()["run_id"]
+    assert rows[0]["company"] == "DAL"
+    assert rows[0]["llm_status"] == created.json()["brief"]["llm_status"]

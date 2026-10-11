@@ -193,6 +193,34 @@ def test_discovery_labels_changed_markets_and_keeps_a_hand_label():
     assert again["fed"].label_source == "hand"
 
 
+def test_discovery_does_not_freeze_markets_the_labeler_has_not_tried_yet():
+    repo = Repository(":memory:")
+    repo.migrate()
+    first = _meta(Venue.KALSHI, "KXWTI-A", title="WTI close above 90")
+    second = _meta(Venue.KALSHI, "KXWTI-B", title="WTI close above 100")
+    passes = {"n": 0}
+
+    def label_fn(markets):
+        passes["n"] += 1
+        if passes["n"] == 1:
+            label_fn.unattempted = {(second.venue, second.market_id)}
+            return [(first, _label())]
+        label_fn.unattempted = set()
+        return [(meta, _label()) for meta in markets]
+
+    settings = Settings(discovery=DiscoveryConfig(
+        kalshi_series=["KXWTI"], polymarket_queries=[], keywords=["wti"],
+    ))
+    worker = _worker(repo, FakeKalshi(list_markets=[first, second]), FakePolymarket(), None,
+                     settings=settings, label_fn=label_fn)
+    assert worker.discover() is True
+    stored = {meta.market_id for meta, _stored in repo.markets()}
+    assert stored == {"KXWTI-A"}
+    assert worker.discover() is False
+    stored = {meta.market_id for meta, _stored in repo.markets()}
+    assert stored == {"KXWTI-A", "KXWTI-B"}
+
+
 def test_filings_tick_stores_overrides_for_a_new_filing():
     repo = Repository(":memory:")
     repo.migrate()

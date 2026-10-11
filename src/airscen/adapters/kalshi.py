@@ -147,7 +147,7 @@ class Kalshi:
         cursor = None
         seen: set[str] = set()
         for _ in range(20):
-            params = {"series_ticker": series, "limit": 200}
+            params = {"series_ticker": series, "status": "open", "limit": 200}
             if cursor:
                 if cursor in seen:
                     break

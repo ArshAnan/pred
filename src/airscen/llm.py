@@ -135,11 +135,11 @@ class LLMClient:
             if hit is None:
                 raise LLMError("cache miss", code="E_LLM_UNAVAILABLE")
             self._log(task, None, None, None, None, cache_hit=True)
-            return json.loads(hit["response_json"])
+            return _cached_response(hit)
         hit = self.cache_get(key)
         if hit is not None:
             self._log(task, hit.get("provider"), hit.get("model"), hit.get("tokens_in"), hit.get("tokens_out"), True)
-            return json.loads(hit["response_json"])
+            return _cached_response(hit)
 
         saw_bad = False
         last_message = "no provider accepted the request"
@@ -238,6 +238,17 @@ class LLMClient:
         if error:
             record["error"] = error
         logger.info(json.dumps(record))
+
+
+def _cached_response(hit: dict):
+    """The stored completion. The real store already parses JSON; a fake cache may still hold the string."""
+    raw = hit.get("response_json")
+    if isinstance(raw, str):
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            return raw
+    return raw
 
 
 def _elapsed(started: float) -> int:

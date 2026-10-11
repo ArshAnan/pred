@@ -144,7 +144,7 @@ def _calibration_time(value) -> str:
 
 def _load_calibration(path) -> list[dict]:
     target = _find_calibration(path)
-    loaded = yaml.safe_load(target.read_text())
+    loaded = yaml.safe_load(target.read_text(encoding="utf-8"))
     rows = loaded.get("rows") if isinstance(loaded, dict) else None
     if not rows:
         return []
@@ -529,6 +529,25 @@ class Repository:
         if row is None:
             return None
         return RunResult.model_validate(json.loads(row["result_json"]))
+
+    def runs(self, ticker: str | None = None, limit: int = 50) -> list[RunResult]:
+        """Saved runs, newest first. `runs` and `alerts` are history, so this is not an as_of read."""
+        if ticker is None:
+            rows = self._fetchall(
+                "SELECT result_json FROM runs ORDER BY created_at DESC, run_id DESC LIMIT ?",
+                (int(limit),),
+            )
+        else:
+            rows = self._fetchall(
+                """
+                SELECT result_json FROM runs
+                WHERE company = ?
+                ORDER BY created_at DESC, run_id DESC
+                LIMIT ?
+                """,
+                (ticker, int(limit)),
+            )
+        return [RunResult.model_validate(json.loads(row["result_json"])) for row in rows]
 
     def update_run_brief(self, run_id: str, md: str, status: str) -> None:
         def work() -> None:

@@ -81,13 +81,19 @@ class RunService:
             ))
 
         rows, summary = scenarios(focal)
-        peers = self._peers(req, focal, as_of, scenarios) if req.include_peers else []
+        if req.include_peers:
+            peers, peer_books = self._peers(req, focal, as_of, scenarios)
+        else:
+            peers, peer_books = [], []
+        peers, focal_margin, margin_flags = self._with_margins(focal, peers, peer_books)
+        flags = list(dict.fromkeys([*flags, *margin_flags]))
 
         result = RunResult(
             run_id=f"run_{uuid.uuid4().hex[:12]}", company=req.ticker, as_of=as_of, created_at=now,
             inputs=req.model_copy(update={"as_of": as_of}), rows=rows, summary=summary, peers=peers,
-            flags=list(dict.fromkeys(flags)), data_version=self.repo.data_version(as_of),
+            flags=flags, data_version=self.repo.data_version(as_of),
             brief=Brief(template_md="", llm_md=None, llm_status="pending" if self.llm else "skipped"),
+            operating_margin=focal_margin,
         )
         result = result.model_copy(update={"brief": result.brief.model_copy(
             update={"template_md": template_brief(result)})})
@@ -188,10 +194,11 @@ class RunService:
                 flags.append("VARIABLE_SHARE_STALE")
         return _CompanyInputs(ticker, baseline, wti_ref, flags, missing)
 
-    def _peers(self, req: RunRequest, focal: "_CompanyInputs", as_of: datetime, scenarios) -> list[PeerResult]:
+    def _peers(self, req: RunRequest, focal: "_CompanyInputs", as_of: datetime, scenarios):
         company = next(c for c in self.settings.companies if c.ticker == req.ticker)
         focal_period = focal.baseline[Metric.OPERATING_INCOME].period_end
         peers = []
+        books = []
         for ticker in company.peers:
             peer = self._company_inputs(ticker, as_of)
             if peer.missing_facts or peer.wti_ref is None:
@@ -203,7 +210,23 @@ class RunService:
             period = peer.baseline[Metric.OPERATING_INCOME].period_end
             flags = peer.flags + (["PERIOD_MISMATCH"] if period != focal_period else [])
             peers.append(PeerResult(ticker=ticker, period_end=period, summary=summary, flags=list(dict.fromkeys(flags))))
-        return peers
+            books.append((ticker, peer.baseline))
+        return peers, books
+
+    def _with_margins(self, focal: "_CompanyInputs", peers: list[PeerResult], peer_books: list[tuple]):
+        """Operating margin for the focal company and each peer that has revenue.
+
+        Adjusted revenue is used only when every company in the comparison has it.
+        A GAAP fallback sets MARGIN_BASIS_MISMATCH. No revenue means no margin and no flag.
+        """
+        compared = scenario.compare_margins([(focal.ticker, focal.baseline), *peer_books])
+        if not compared.margins:
+            return peers, None, []
+        updated = [
+            peer.model_copy(update={"operating_margin": compared.margins.get(peer.ticker)})
+            for peer in peers
+        ]
+        return updated, compared.margins.get(focal.ticker), list(compared.flags)
 
     def _baseline(self, company: str, as_of: datetime) -> tuple[dict[Metric, Fact], set[str]]:
         facts, flags = self.repo.latest_facts(company, as_of)

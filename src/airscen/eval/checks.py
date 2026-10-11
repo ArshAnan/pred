@@ -66,6 +66,53 @@ def number_lines(overrides: dict | None, extracted: dict | None = None) -> list[
     return lines
 
 
+def books_from_override_doc(doc: dict | None) -> dict[str, dict[str, float]]:
+    """Newest period of each hand-checked fact, keyed by company and metric.
+
+    A GAAP value keeps the metric name. An adjusted value of the same metric
+    is stored as ``<metric>_adjusted`` so both can be checked. Metrics that
+    are already adjusted, such as ``revenue_adjusted``, keep their name.
+    """
+    chosen: dict[tuple[str, str, str], tuple[str, float]] = {}
+    for row in (doc or {}).get("facts") or []:
+        if not isinstance(row, dict) or "value" not in row:
+            continue
+        company = str(row.get("company") or "")
+        metric = str(row.get("metric") or "")
+        if not company or not metric:
+            continue
+        basis = str(row.get("basis") or "GAAP")
+        period = str(row.get("period_end") or "")
+        key = (company, metric, basis)
+        previous = chosen.get(key)
+        if previous is None or period >= previous[0]:
+            chosen[key] = (period, float(row["value"]))
+    books: dict[str, dict[str, float]] = {}
+    for (company, metric, basis), (_, value) in chosen.items():
+        if basis == "GAAP" or metric.endswith("_adjusted"):
+            name = metric
+        else:
+            name = f"{metric}_adjusted"
+        books.setdefault(company, {})[name] = value
+    return books
+
+
+def missing_metric_lines(doc: dict | None) -> list[str]:
+    """Facts the filing does not contain. They are absent, not a wrong extraction."""
+    lines = []
+    for row in (doc or {}).get("missing") or []:
+        if not isinstance(row, dict):
+            continue
+        company = row.get("company") or "?"
+        metric = str(row.get("metric") or "?")
+        basis = str(row.get("basis") or "GAAP")
+        if basis != "GAAP" and not metric.endswith("_adjusted"):
+            metric = f"{metric}_adjusted"
+        reason = row.get("reason") or "not in the filing"
+        lines.append(f"{company} {metric}: absent (not in the filing: {reason})")
+    return lines
+
+
 def _close(got: float, expected: float) -> bool:
     scale = max(abs(expected), 1.0)
     return abs(got - expected) / scale <= _TOLERANCE

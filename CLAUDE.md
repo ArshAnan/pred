@@ -97,7 +97,7 @@ Two processes on one machine, both bound to localhost, plus one optional:
 
 | Process | Command | Address |
 | --- | --- | --- |
-| API server (FastAPI, one uvicorn worker, hosts the worker loop) | `uvicorn airscen.api:app --host 127.0.0.1 --port 8000 --workers 1` | 127.0.0.1:8000, base path `/api/v1` |
+| API server (FastAPI, one uvicorn worker, hosts the worker loop) | `make api` (`uvicorn airscen.main:app --host 127.0.0.1 --port 8000 --workers 1`) | 127.0.0.1:8000, base path `/api/v1` |
 | Streamlit app (API client only) | `streamlit run app.py --server.address 127.0.0.1 --server.port 8501` | 127.0.0.1:8501 |
 | Ollama (optional, last-resort LLM) | `ollama serve` | 127.0.0.1:11434 |
 

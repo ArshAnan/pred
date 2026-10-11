@@ -67,7 +67,7 @@ background worker.
   up to 60 s); until then, or if it fails the number check, the template brief is shown.
 - **Exposure map**: the markets that bear on the decision, by factor, with direction and trust. LLM-written labels are
   marked "LLM (unvalidated)".
-- **Peers**: the same question for United and American with the same fuel curve and Fed odds but their own financials.
+- **Peers**: the same question for United and American with the same fuel curve and Fed odds but their own financials, plus operating margin (adjusted revenue when every company has it).
 - **Alerts**: the alert feed (undelivered alerts are marked) and a "Send test alert" button.
 - **Replay**: slide `as_of` back (default 2026-07-10) and rerun with only the data visible then.
 
@@ -124,10 +124,9 @@ lane A's real in-memory store (`tests/product/test_real_store.py`).
 
 Still open:
 
-| Item | Owner | Effect until then |
-| --- | --- | --- |
-| `Repository.runs(ticker, limit)` (newest first) | A | `GET /runs` answers 503 saying so; everything else works |
-| `tests/data/test_adapters.py` reads a fixture without `encoding="utf-8"` | A | that one test fails on Windows |
-| Margins on the Peers page (`compare_margins` plus a margin field on `PeerResult`) | B + C | no margin column yet |
-| `CLAUDE.md` section 7 still names `airscen.api:app` | team | `make api` runs `airscen.main:app`, which wires every lane |
-| Two demo rehearsals (C16) | all | to do together |
+| Item | Effect |
+| --- | --- |
+| `.env` keys (`SEC_USER_AGENT`, `FRED_API_KEY`, and LLM keys if you want a written brief) | `make api` will not load settings, and ingest cannot fetch FRED, until those are filled in. The app and the tests run without them. |
+| July 10 Treasury yield | the replay coverage grid excludes the new note, because that day's `DGS10` vintage is not in the fixtures |
+| Calibration liquidity | `calibration.yaml` has the last price and the outcome, not volume, so the Brier score is reported and the liquidity buckets are not |
+| Two demo rehearsals | still to do together |

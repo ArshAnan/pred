@@ -2,19 +2,33 @@
 
 The quotes are the last 60-minute bar at or before 2026-07-10T20:00:00Z.
 They are stored with a backfill source, so trust is capped and the run
-carries BACKFILL_INPUTS. June-quarter financials are not in overrides.yaml,
-so this module reports the fuel and rate range and does not invent coverage.
+carries BACKFILL_INPUTS. Coverage uses the June-quarter facts in
+overrides.yaml. The July 10 DGS10 vintage is not in the fixtures, so the
+new note's coupon is not applied and the grid is the existing book.
 """
 
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 
+from airscen.extract import load_overrides
 from airscen.factors import FactorQuote, fuel_curve, fuel_states, rate_states
+from airscen.scenario import run_scenarios
 from airscen.trust import trust_score
-from airscen.types import Factor, MarketKind, MarketLabel, MarketMeta, Snapshot, Venue
+from airscen.types import (
+    Basis,
+    DataError,
+    Factor,
+    MarketKind,
+    MarketLabel,
+    MarketMeta,
+    Metric,
+    ScenarioInputs,
+    Snapshot,
+    Venue,
+)
 
 _TRUST = {
     "weights": {"spread": 0.35, "depth": 0.25, "volume": 0.25, "time": 0.15},
@@ -29,6 +43,8 @@ _TRUST = {
 GUIDE_GAL = 3.15
 REALIZED_GAL = 3.61
 REALIZED_COVERAGE = 10.0
+_JUNE_END = date(2026, 6, 30)
+_COVERAGE_THRESHOLD = 6.0  # worked-example placeholder; no covenant has been verified
 
 
 def default_fixture() -> Path:
@@ -103,6 +119,66 @@ def july10_inputs(doc: dict | None = None):
     return as_of, quotes, doc
 
 
+def _june_baseline() -> dict:
+    """June-quarter DAL facts from the hand-checked overrides. GAAP wins on a metric."""
+    facts = [
+        fact for fact in load_overrides()
+        if fact.company == "DAL" and fact.period_end == _JUNE_END
+    ]
+    baseline: dict = {}
+    for fact in sorted(facts, key=lambda item: item.basis != Basis.GAAP):
+        baseline.setdefault(fact.metric, fact)
+    return baseline
+
+
+def _coverage_lines(as_of: datetime, rates, curve, wti_ref: float) -> list[str]:
+    baseline = _june_baseline()
+    required = (
+        Metric.OPERATING_INCOME,
+        Metric.NET_INTEREST_EXPENSE,
+        Metric.FUEL_GALLONS_M,
+        Metric.DEBT_TOTAL,
+        Metric.VARIABLE_DEBT_SHARE,
+    )
+    missing = [metric.value for metric in required if metric not in baseline]
+    if missing or curve is None or rates is None:
+        why = ", ".join(missing) if missing else "fuel curve or rate states missing"
+        return [f"coverage grid not computed: {why}"]
+    try:
+        rows, summary = run_scenarios(ScenarioInputs(
+            company="DAL",
+            as_of=as_of,
+            note_size_usd_m=0.0,
+            tenor_years=7,
+            coupon=0.0,
+            coverage_threshold=_COVERAGE_THRESHOLD,
+            fuel_passthrough=1.0,
+            baseline=baseline,
+            wti_ref=wti_ref,
+            rates=rates,
+            fuel=curve,
+        ))
+    except DataError as exc:
+        return [f"coverage grid not computed: {exc.message}"]
+    hold = {row.fuel_label: row.coverage for row in rows if row.rate_label == "hold"}
+    liquidity = "n/a" if summary.liquidity_cover is None else f"{summary.liquidity_cover:.2f}x"
+    breach = "n/a" if summary.p_breach is None else f"{summary.p_breach:.3f}"
+    return [
+        "coverage grid uses June-quarter facts from overrides.yaml "
+        "(operating income 1864, net interest 144, gallons 1122, debt 13952, variable share 0.22). "
+        "The new note is excluded: the July 10 DGS10 vintage is not in the fixtures, so no coupon was applied. "
+        f"Coverage threshold {_COVERAGE_THRESHOLD:.1f} is the worked-example placeholder, not a verified covenant.",
+        (
+            f"hold coverage P10 {hold['P10']:.2f}x P50 {hold['P50']:.2f}x P90 {hold['P90']:.2f}x; "
+            f"p_breach {breach}; liquidity cover {liquidity}"
+        ),
+        (
+            f"September quarter realized coverage about {REALIZED_COVERAGE:.0f}x "
+            "(operating income over net interest on the existing book, no new note)."
+        ),
+    ]
+
+
 def replay_lines(doc: dict | None = None) -> list[str]:
     as_of, quotes, doc = july10_inputs(doc)
     rates, rate_flags = rate_states(quotes)
@@ -135,8 +211,7 @@ def replay_lines(doc: dict | None = None) -> list[str]:
         f"September quarter realized: adjusted fuel {REALIZED_GAL:.2f} USD/gal, "
         f"coverage about {REALIZED_COVERAGE:.0f}x."
     )
-    lines.append(
-        "coverage grid not computed: June-quarter operating income is not in overrides.yaml"
-    )
+    wti_ref = float(doc["wti_ref_q2"]["mean"]) if doc.get("wti_ref_q2") else 0.0
+    lines.extend(_coverage_lines(as_of, rates, curve, wti_ref))
     lines.append("one case study, not a statistical result")
     return lines

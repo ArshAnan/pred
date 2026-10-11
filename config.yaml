@@ -27,8 +27,9 @@ llm:
   max_calls_per_hour: 120
   max_input_tokens: 20000
   models: {snowflake: claude-haiku-4-5, gemini: "<current Flash model id>", ollama: "<installed instruct model>"}
-# KXFEDDECISION is one contract per meeting outcome. KXWTI is a close-above ladder.
+# Open markets only. KXFEDDECISION is one contract per meeting outcome, KXCPI is an
+# inflation ladder, and KXWTI is a close-above ladder.
 discovery:
-  kalshi_series: [KXFEDDECISION, KXWTI]
+  kalshi_series: [KXFEDDECISION, KXCPI, KXWTI]
   polymarket_queries: ["Federal Reserve", "WTI", "CPI"]
   keywords: [fed, fomc, "federal reserve", "interest rate", wti, crude, oil, cpi, inflation]

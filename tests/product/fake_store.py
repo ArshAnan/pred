@@ -12,8 +12,7 @@ own tests/fakes/fake_repo.py (the real SQLite store, in memory) so the two canno
   data_version(as_of)                           -> str
   save_run(run), get_run(run_id) -> RunResult | None, update_run_brief(run_id, md, status)
   save_alert(a) (upsert by alert_id), alerts(company, since) -> list[Alert], oldest first
-  runs(ticker=None, limit=50) -> list[RunResult], newest first. NOT in lane A's store yet: GET /runs
-      needs it, and returns a clear 503 until lane A adds it (the runs table already has the columns).
+  runs(ticker=None, limit=50) -> list[RunResult], newest first.
 
 `seed_worked_example` loads the LLD section 6 worked example. ILLUSTRATIVE: market ids, quotes,
 the WTI ladder, DGS10 = 4.00 (so the coupon is 5.5% at a 150 bp spread) and W_bar = 85 are

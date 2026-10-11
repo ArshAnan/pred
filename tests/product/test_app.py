@@ -175,6 +175,7 @@ def test_peers_page_shows_the_three_airline_table_with_flags(api):
     at.session_state["run_id"] = run["run_id"]
     open_page(at, "Peers")
     table = at.dataframe[0].value
+    assert "Operating margin" in table.columns
     assert list(table["Company"]) == ["DAL", "UAL", "AAL"]
     assert list(table["Breach probability"]) == ["29.7%", "29.7%", "29.7%"]
     assert list(table["Period end"]) == ["2026-09-30", "2026-09-30", "2026-06-30"]

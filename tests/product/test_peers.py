@@ -1,15 +1,22 @@
 """C10: peers use the same request, fuel curve and rate states as the focal company, but their own
 facts and their own baseline WTI; PERIOD_MISMATCH when their period differs (LLD section 6 "Peers").
-Peer data here is SYNTHETIC (seed_peer copies Delta's illustrative facts under another ticker)."""
+Peer data here is SYNTHETIC (seed_peer copies Delta's illustrative facts under another ticker).
+Revenue figures in the margin tests are Delta's September-quarter 2026 8-K numbers, copied onto
+the synthetic peer so the basis rule can be checked."""
 
-from datetime import date
+from datetime import date, datetime, timezone
 
 import pytest
 
 from airscen.config import Settings
 from airscen.service import RunService
-from airscen.types import RunRequest
+from airscen.types import Basis, Extraction, Fact, Metric, RunRequest
 from fake_store import AS_OF, FakeStore, seed_peer, seed_worked_example
+
+_OI = 1454.0
+_GAAP_REVENUE = 20186.0
+_ADJUSTED_REVENUE = 17585.0
+_SOURCE = "https://www.sec.gov/Archives/edgar/data/27904/000002790426000035/deltaairlinesannouncessept.htm"
 
 
 def run(store, include_peers=True):
@@ -73,3 +80,33 @@ def test_peer_flags_are_its_own(store):
     peer = run(store).peers[0]
     assert "VARIABLE_SHARE_STALE" not in peer.flags  # the synthetic peer's share is from the same period
     assert "CRUDE_ONLY" not in peer.flags            # run-level assumptions stay on the run
+
+
+def _revenue(company: str, metric: Metric, value: float, basis: Basis) -> Fact:
+    return Fact(
+        company=company, metric=metric, value=value, unit="usd_m", basis=basis,
+        period_end=date(2026, 9, 30), filed_at=datetime(2026, 10, 9, 12, tzinfo=timezone.utc),
+        source_url=_SOURCE, extraction=Extraction.OVERRIDE, validated=True,
+    )
+
+
+def test_margins_use_adjusted_revenue_when_every_company_has_it(store):
+    seed_peer(store, "UAL")
+    for ticker in ("DAL", "UAL"):
+        store.facts.append(_revenue(ticker, Metric.REVENUE_GAAP, _GAAP_REVENUE, Basis.GAAP))
+        store.facts.append(_revenue(ticker, Metric.REVENUE_ADJUSTED, _ADJUSTED_REVENUE, Basis.ADJUSTED))
+    result = run(store)
+    assert result.operating_margin == pytest.approx(_OI / _ADJUSTED_REVENUE)
+    assert result.peers[0].operating_margin == pytest.approx(_OI / _ADJUSTED_REVENUE)
+    assert "MARGIN_BASIS_MISMATCH" not in result.flags
+
+
+def test_margins_fall_back_to_gaap_when_a_peer_lacks_adjusted_revenue(store):
+    seed_peer(store, "UAL")
+    store.facts.append(_revenue("DAL", Metric.REVENUE_GAAP, _GAAP_REVENUE, Basis.GAAP))
+    store.facts.append(_revenue("DAL", Metric.REVENUE_ADJUSTED, _ADJUSTED_REVENUE, Basis.ADJUSTED))
+    store.facts.append(_revenue("UAL", Metric.REVENUE_GAAP, _GAAP_REVENUE, Basis.GAAP))
+    result = run(store)
+    assert "MARGIN_BASIS_MISMATCH" in result.flags
+    assert result.operating_margin == pytest.approx(_OI / _GAAP_REVENUE)
+    assert result.peers[0].operating_margin == pytest.approx(_OI / _GAAP_REVENUE)

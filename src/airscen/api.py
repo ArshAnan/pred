@@ -56,8 +56,14 @@ def _worker_runners(worker: Any) -> dict[str, service.JobRunner]:
     narrowed. Backfill runs worker.backfill(start, end) over the whole window, when the worker has it."""
     if worker is None:
         return {}
+    def markets(tickers, window):
+        # LLD: ingest with markets discovers and labels, then records quotes.
+        if hasattr(worker, "discover"):
+            worker.discover()
+        worker.tick_markets()
+
     runners: dict[str, service.JobRunner] = {
-        "markets": lambda tickers, window: worker.tick_markets(),
+        "markets": markets,
         "filings": lambda tickers, window: worker.tick_filings(),
         "macro": lambda tickers, window: worker.tick_macro(),
     }

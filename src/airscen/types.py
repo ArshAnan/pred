@@ -119,7 +119,9 @@ class ScenarioSummary(FrozenModel):
         # x / 0 from kappa = 0 would serialize to JSON null and then fail to reload
         return v if v is None or math.isfinite(v) else None
 
-class PeerResult(FrozenModel): ticker: str; period_end: date; summary: ScenarioSummary; flags: list[str]
+class PeerResult(FrozenModel):
+    ticker: str; period_end: date; summary: ScenarioSummary; flags: list[str]
+    operating_margin: Optional[float] = None  # operating income / revenue; None when revenue is missing
 
 class RunRequest(FrozenModel):
     model_config = ConfigDict(extra="forbid")
@@ -148,6 +150,7 @@ class RunResult(FrozenModel):
     schema_version: int = 1; run_id: str; company: str; as_of: datetime; created_at: datetime
     inputs: RunRequest; rows: list[ScenarioRow]; summary: ScenarioSummary
     peers: list[PeerResult]; flags: list[str]; data_version: str; brief: Brief
+    operating_margin: Optional[float] = None  # focal company; same basis as the peer comparison
 
 class Alert(FrozenModel):
     alert_id: str; ts: datetime; company: str; run_id: Optional[str]

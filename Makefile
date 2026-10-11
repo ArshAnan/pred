@@ -16,6 +16,13 @@ endif
 # Use the project venv once `make setup` has created it.
 PY := $(if $(wildcard $(VENV_PY_FILE)),$(VENV_PY),$(PYTHON))
 
+# src layout: recipes import airscen from src/ as well as from an editable install.
+ifeq ($(OS),Windows_NT)
+  export PYTHONPATH := src$(if $(PYTHONPATH),;$(PYTHONPATH))
+else
+  export PYTHONPATH := src$(if $(PYTHONPATH),:$(PYTHONPATH))
+endif
+
 API_HOST ?= 127.0.0.1
 API_PORT ?= 8000
 UI_HOST ?= 127.0.0.1

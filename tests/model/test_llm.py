@@ -39,6 +39,18 @@ def _client(providers, **kwargs):
     return client, store, clock
 
 
+def test_a_cache_that_already_parsed_json_is_still_a_hit():
+    """The real store returns response_json as a dict. A second loads() call must not run."""
+    provider = ScriptedProvider(['{"a": 1}'])
+    client, store, _ = _client({"snowflake": provider})
+    client.complete_json("label_market", "sys", "user", _SCHEMA, "ignored")
+    for entry in store.values():
+        entry["response_json"] = json.loads(entry["response_json"])
+    again = client.complete_json("label_market", "sys", "user", _SCHEMA, "ignored")
+    assert again == {"a": 1}
+    assert len(provider.calls) == 1
+
+
 def test_cache_hit_does_not_call_and_uses_temperature_zero():
     provider = ScriptedProvider(['{"a": 1}'])
     client, _, _ = _client({"snowflake": provider})

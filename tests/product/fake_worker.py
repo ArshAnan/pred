@@ -32,6 +32,9 @@ class FakeWorker:
     def stop(self):
         self.stopped += 1
 
+    def discover(self):
+        self.ticks.append("discover")
+
     def tick_markets(self):
         self.ticks.append("markets")
 

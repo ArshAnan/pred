@@ -56,15 +56,19 @@ class Fred:
                 code="E_SOURCE_AUTH",
                 details={"source": "fred"},
             )
+        # realtime_start is the window start, not 1776-07-04. FRED rejects a
+        # vintage span with more than 2000 vintage dates (DGS10 has thousands
+        # back to the 1960s). Vintages inside this window are enough for as_of.
+        window_start = _as_date(start).isoformat()
         payload = self._client.get_json(
             "/series/observations",
             {
                 "series_id": series_id,
                 "api_key": self._api_key,
                 "file_type": "json",
-                "observation_start": _as_date(start).isoformat(),
+                "observation_start": window_start,
                 "observation_end": _as_date(end).isoformat(),
-                "realtime_start": "1776-07-04",
+                "realtime_start": window_start,
                 "realtime_end": _as_date(as_of).isoformat(),
             },
         )

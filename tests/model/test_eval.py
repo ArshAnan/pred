@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 
 from airscen.eval.ablation import ablation_lines
 from airscen.eval.calibration import brier_score, reliability_lines
-from airscen.eval.checks import balance_sheet, debt_identity, number_lines
+from airscen.eval.checks import balance_sheet, books_from_override_doc, debt_identity, missing_metric_lines, number_lines
 from airscen.eval.faithfulness import faithfulness_lines
 from airscen.eval.replay import replay_lines
 from airscen.eval.__main__ import report
@@ -35,7 +35,10 @@ def test_july10_replay_uses_backfill_and_states_the_realised_quarter():
     assert "3.61" in text
     assert "3.15" in text
     assert "one case study, not a statistical result" in text
-    assert "coverage grid not computed" in text
+    assert "hold coverage P10" in text
+    assert "June-quarter facts" in text
+    assert "July 10 DGS10" in text
+    assert "coverage grid not computed" not in text
     wti = next(line for line in lines if line.startswith("WTI P10"))
     parts = wti.split()
     p10 = float(parts[parts.index("P10") + 1])
@@ -112,8 +115,34 @@ def test_calibration_reports_brier_against_the_coin_flip():
     assert "sample size 0" in "\n".join(reliability_lines([]))
 
 
-def test_report_ends_with_the_limits():
+def test_report_ends_with_the_limits(monkeypatch):
+    monkeypatch.setattr("airscen.eval.__main__._open_repo", lambda: None)
     text = report()
     assert text.strip().endswith("The brief is judged on faithfulness to its inputs, not on foresight.")
     assert "One replay is a case study, not a statistical result." in text
     assert "No claim of predictive edge." in text
+    assert "DAL debt_identity: pass" in text
+    assert "DAL operating_income: pass" in text
+    assert "calibration sample size 10" in text
+    assert "liquidity not recorded" in text
+
+
+def test_override_books_keep_the_newest_period_and_both_bases():
+    books = books_from_override_doc({
+        "facts": [
+            {"company": "DAL", "metric": "operating_income", "value": 1864, "basis": "GAAP", "period_end": "2026-06-30"},
+            {"company": "DAL", "metric": "operating_income", "value": 1454, "basis": "GAAP", "period_end": "2026-09-30"},
+            {"company": "DAL", "metric": "fuel_price_per_gal", "value": 3.80, "basis": "GAAP", "period_end": "2026-09-30"},
+            {"company": "DAL", "metric": "fuel_price_per_gal", "value": 3.61, "basis": "ADJUSTED", "period_end": "2026-09-30"},
+        ]
+    })
+    assert books["DAL"]["operating_income"] == 1454
+    assert books["DAL"]["fuel_price_per_gal"] == 3.80
+    assert books["DAL"]["fuel_price_per_gal_adjusted"] == 3.61
+
+
+def test_missing_filing_metrics_are_failures():
+    text = "\n".join(missing_metric_lines({
+        "missing": [{"company": "UAL", "metric": "variable_debt_share", "reason": "not stated"}],
+    }))
+    assert "UAL variable_debt_share: absent" in text

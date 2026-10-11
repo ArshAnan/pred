@@ -362,7 +362,7 @@ def _fact_from_override(row: dict) -> Fact:
 
 def _read_yaml(path) -> dict:
     target = _find_overrides(path)
-    loaded = yaml.safe_load(target.read_text())
+    loaded = yaml.safe_load(target.read_text(encoding="utf-8"))
     if not isinstance(loaded, dict):
         raise DataError("overrides.yaml must be a mapping", code="E_MISSING_FACT")
     return loaded

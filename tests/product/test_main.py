@@ -100,3 +100,47 @@ def test_label_hook_keeps_going_when_one_market_fails(monkeypatch):
     monkeypatch.setattr(main.scout, "hand_labels", lambda path: {})
     labels = main.make_label_fn(llm_client=None)(metas)
     assert list(labels) == [(Venue.KALSHI, "M1")]
+
+
+def test_hand_labels_are_flushed_before_the_model_and_the_tail_waits(monkeypatch):
+    hand = MarketLabel(relevant=True, factor="fuel", yes_moves_factor="up", label_source="hand")
+    hands = {(Venue.KALSHI, "HAND"): (hand, {})}
+    order = []
+
+    def label(meta, llm=None, hands=None):
+        order.append(meta.market_id)
+        if meta.market_id == "HAND":
+            return hand
+        return MarketLabel(relevant=False, label_source="llm")
+
+    monkeypatch.setattr(main.scout, "candidates", lambda metas: list(metas))
+    monkeypatch.setattr(main.scout, "label", label)
+    monkeypatch.setattr(main.scout, "hand_labels", lambda path: hands)
+    monkeypatch.setattr(main, "_LLM_LABELS_PER_PASS", 2)
+    flushed = []
+    metas = [MarketMeta(venue=Venue.KALSHI, market_id=f"M{i}", title="WTI") for i in range(4)]
+    metas.append(MarketMeta(venue=Venue.KALSHI, market_id="HAND", title="WTI close"))
+    fn = main.make_label_fn(llm_client=object(), on_hand_labels=flushed.append)
+    labels = fn(metas)
+    assert order[0] == "HAND"
+    assert [meta.market_id for meta, _ in flushed[0]] == ["HAND"]
+    assert order[1:] == ["M0", "M1"]
+    assert (Venue.KALSHI, "HAND") in labels
+    assert fn.unattempted == {(Venue.KALSHI, "M2"), (Venue.KALSHI, "M3")}
+
+
+def test_a_stuck_model_call_gives_up(monkeypatch):
+    import time
+
+    def label(meta, llm=None, hands=None):
+        time.sleep(5)
+        return MarketLabel(relevant=False, label_source="llm")
+
+    monkeypatch.setattr(main.scout, "candidates", lambda metas: list(metas))
+    monkeypatch.setattr(main.scout, "label", label)
+    monkeypatch.setattr(main.scout, "hand_labels", lambda path: {})
+    monkeypatch.setattr(main, "_LLM_LABEL_TIMEOUT_S", 0.2)
+    monkeypatch.setattr(main, "_LLM_LABELS_PER_PASS", 1)
+    meta = MarketMeta(venue=Venue.KALSHI, market_id="SLOW", title="WTI")
+    fn = main.make_label_fn(llm_client=object())
+    assert fn([meta]) == {}

@@ -279,6 +279,23 @@ def test_macro_uses_the_newest_vintage_visible_at_as_of(db_path):
     ]
 
 
+def test_runs_lists_newest_first_and_can_filter_by_company(db_path):
+    repo = Repository(db_path)
+    repo.migrate()
+    older = _run("run_old")
+    newer = _run("run_new").model_copy(update={"created_at": datetime(2026, 10, 2, tzinfo=timezone.utc)})
+    other = _run("run_ual").model_copy(update={
+        "company": "UAL",
+        "created_at": datetime(2026, 10, 3, tzinfo=timezone.utc),
+        "inputs": RunRequest(ticker="UAL", note_size_usd_m=1000, tenor_years=7, coupon_spread_bp=150),
+    })
+    repo.save_run(older)
+    repo.save_run(newer)
+    repo.save_run(other)
+    assert [row.run_id for row in repo.runs(limit=2)] == ["run_ual", "run_new"]
+    assert [row.run_id for row in repo.runs(ticker="DAL")] == ["run_new", "run_old"]
+
+
 def test_run_alert_and_cache_round_trip(db_path):
     repo = Repository(db_path)
     repo.migrate()

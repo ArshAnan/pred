@@ -7,9 +7,9 @@ from airscen.types import RunResult
 
 
 def faithfulness_lines(pairs: list[tuple[str, RunResult]]) -> list[str]:
-    """Pass rate of check_numbers over the given briefs.
+    """Pass rate of check_numbers over stored LLM briefs.
 
-    An empty list is sample size 0. The store does not yet return saved briefs.
+    An empty list is sample size 0: no brief with llm_status ready was available.
     """
     if not pairs:
         return ["faithfulness pass rate not available, sample size 0"]

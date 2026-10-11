@@ -43,6 +43,7 @@ log = logging.getLogger("airscen.worker")
 _DEGRADED_AFTER_S = 900
 _QUOTE_BATCH = 500
 _DISCOVERY_S = 6 * 60 * 60
+_DISCOVERY_RETRY_S = 30
 _BACKFILL_CHUNK = timedelta(days=14)
 _MACRO_LOOKBACK = timedelta(days=800)
 _FILING_LOOKBACK = timedelta(days=180)
@@ -157,12 +158,16 @@ class WorkerLoop:
     def tick_macro(self):
         self._run_tick(self._ingest_macro)
 
-    def discover(self):
-        """List and search, then label markets whose title, rules, or close time changed."""
+    def discover(self) -> bool:
+        """List and search, then label markets whose title, rules, or close time changed.
+
+        Returns True when some candidates were not labeled this pass. Their content hash is left
+        unchanged so the next pass can try again.
+        """
         found: list[tuple[MarketMeta, bool]] = []
         for series in self._settings.discovery.kalshi_series:
             if self._stop:
-                return
+                return False
             try:
                 for meta in self._adapters.kalshi.list_markets(series) or []:
                     found.append((meta, True))
@@ -172,7 +177,7 @@ class WorkerLoop:
                 self._mark_fail("kalshi")
         for query in self._settings.discovery.polymarket_queries:
             if self._stop:
-                return
+                return False
             try:
                 for meta in self._adapters.polymarket.search(query) or []:
                     found.append((meta, False))
@@ -185,15 +190,22 @@ class WorkerLoop:
             meta for meta in kept
             if self._repo.content_hash_for(meta.venue, meta.market_id) != market_content_hash(meta)
         ]
+        if hasattr(self._label_fn, "unattempted"):
+            self._label_fn.unattempted = set()
         labels = self._labels_for(changed)
+        unattempted = set(getattr(self._label_fn, "unattempted", ()) or ())
         changed_ids = {(meta.venue, meta.market_id) for meta in changed}
         for meta in kept:
             if self._stop:
-                return
-            label = labels.get((meta.venue, meta.market_id)) if (meta.venue, meta.market_id) in changed_ids else None
+                return bool(unattempted)
+            key = (meta.venue, meta.market_id)
+            if key in unattempted:
+                continue
+            label = labels.get(key) if key in changed_ids else None
             if not isinstance(label, MarketLabel):
                 label = None
             self._repo.upsert_market(meta, label)
+        return bool(unattempted)
 
     def backfill(self, start: datetime, end: datetime) -> list[MarketMeta]:
         """Write 60-minute Kalshi candles and 3-hour Polymarket history.
@@ -236,8 +248,8 @@ class WorkerLoop:
         while not self._stop:
             now = time.monotonic()
             if now >= next_discover:
-                self.discover()
-                next_discover = now + _DISCOVERY_S
+                incomplete = bool(self.discover())
+                next_discover = now + (_DISCOVERY_RETRY_S if incomplete else _DISCOVERY_S)
             if self._stop:
                 break
             if now >= next_market:

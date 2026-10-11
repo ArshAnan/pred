@@ -130,7 +130,7 @@ def test_make_ingest_runs_the_worker_ticks():
     with TestClient(build(worker)) as c:
         job = wait_done(c, c.post(P + "/admin/ingest", json={}).json()["job_id"])
     assert job["status"] == "succeeded"
-    assert worker.ticks == ["markets", "filings", "macro"]
+    assert worker.ticks == ["discover", "markets", "filings", "macro"]
 
 
 def test_backfill_is_not_wired_to_the_worker_yet():
