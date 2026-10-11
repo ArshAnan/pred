@@ -101,6 +101,24 @@ class LLMConfig(_Section):
     models: LLMModels = Field(default_factory=LLMModels)
 
 
+class DiscoveryConfig(_Section):
+    """Series confirmed against the exchange are written in config.yaml (A14).
+
+    An empty `kalshi_series` means discovery stays on keyword search only.
+    """
+
+    kalshi_series: list[str] = Field(default_factory=list)
+    polymarket_queries: list[str] = Field(
+        default_factory=lambda: ["Federal Reserve", "WTI", "CPI"]
+    )
+    keywords: list[str] = Field(
+        default_factory=lambda: [
+            "fed", "fomc", "federal reserve", "interest rate",
+            "wti", "crude", "oil", "cpi", "inflation",
+        ]
+    )
+
+
 def _default_companies() -> list[CompanyConfig]:
     return [
         CompanyConfig(ticker="DAL", cik=27904, name="Delta Air Lines", peers=["UAL", "AAL"]),
@@ -139,6 +157,7 @@ class Settings(BaseModel):
     scenario: ScenarioConfig = Field(default_factory=ScenarioConfig)
     alerts: AlertsConfig = Field(default_factory=AlertsConfig)
     llm: LLMConfig = Field(default_factory=LLMConfig)
+    discovery: DiscoveryConfig = Field(default_factory=DiscoveryConfig)
 
 
 _ENV_FIELDS = {
