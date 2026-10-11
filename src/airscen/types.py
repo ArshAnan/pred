@@ -216,3 +216,41 @@ class RunSummary(FrozenModel):
     run_id: str; company: str; as_of: datetime; created_at: datetime
     p_breach: Optional[float]; flags: list[str]
     llm_status: Literal["pending", "ready", "failed", "rejected", "skipped"]
+
+
+class SensitivityPoint(FrozenModel):
+    """One assumption value on a single-lever sweep of a saved run."""
+
+    value: float
+    is_baseline: bool
+    p_breach: Optional[float]
+    delta_p_breach: Optional[float]
+    coverage_p50: float
+    breakeven_wti_hold: Optional[float]
+    above_line: Optional[bool]
+
+
+class SensitivityLever(FrozenModel):
+    """Breach probability as one stated assumption moves, everything else fixed."""
+
+    name: Literal["note_size_usd_m", "coupon_spread_bp", "coverage_threshold", "fuel_passthrough"]
+    label: str
+    unit: str
+    baseline_value: float
+    swing: Optional[float]
+    flip_value: Optional[float]
+    points: list[SensitivityPoint]
+
+
+class SensitivityReport(FrozenModel):
+    """Which assumption moves the serviceability call, on the alert line used by BREACH_FLIP."""
+
+    run_id: str
+    company: str
+    as_of: datetime
+    line: float
+    baseline_p_breach: Optional[float]
+    most_sensitive: Optional[str]
+    call_stable: bool
+    reading: str
+    levers: list[SensitivityLever]

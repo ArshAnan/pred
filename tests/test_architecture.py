@@ -20,6 +20,7 @@ _SERVICE = {
     "airscen.trust",
     "airscen.factors",
     "airscen.scenario",
+    "airscen.sensitivity",
     "airscen.brief",
 }
 

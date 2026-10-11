@@ -274,6 +274,41 @@ def test_exposure_map_with_no_markets(api):
     assert any("No markets" in i.value for i in at.info)
 
 
+# ---- Sensitivity ----
+
+SENSITIVITY = {
+    "run_id": "run_golden", "company": "DAL", "as_of": "2026-10-09T14:30:00Z", "line": 0.2,
+    "baseline_p_breach": 0.297, "most_sensitive": "coverage_threshold", "call_stable": False,
+    "reading": "At the stated assumptions, the breach probability is 29.7%, at or above the 20% alert line.",
+    "levers": [{
+        "name": "coverage_threshold", "label": "Coverage threshold", "unit": "x", "baseline_value": 6.0,
+        "swing": 0.22, "flip_value": 4.8,
+        "points": [
+            {"value": 3.0, "is_baseline": False, "p_breach": 0.074, "delta_p_breach": -0.223,
+             "coverage_p50": 7.49, "breakeven_wti_hold": 120.0, "above_line": False},
+            {"value": 6.0, "is_baseline": True, "p_breach": 0.297, "delta_p_breach": 0.0,
+             "coverage_p50": 7.49, "breakeven_wti_hold": 103.16, "above_line": True},
+        ],
+    }],
+}
+
+
+def test_sensitivity_page_shows_the_sweep_for_the_last_run(api):
+    posted_run(api)
+    api.get("/runs/run_golden/sensitivity").respond(200, json=SENSITIVITY)
+    at = open_page(click_run(start()), "Sensitivity")
+    text = page_text(at)
+    assert "29.7%" in text
+    assert "Coverage threshold" in text
+    assert "4.80 x" in text or "4.80" in text
+    assert "at or above the 20% alert line" in text
+
+
+def test_sensitivity_page_without_a_run_asks_for_one(api):
+    at = open_page(start(), "Sensitivity")
+    assert "Run a question first" in page_text(at)
+
+
 # ---- Replay (C13) ----
 
 def test_replay_at_july_10_shows_a_run_with_backfill_inputs(api):

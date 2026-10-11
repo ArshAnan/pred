@@ -459,6 +459,54 @@ REPLAY_DEFAULT_DAY = date(2026, 7, 10)  # June-quarter release; the demo replay 
 REPLAY_TIME_UTC = clock_time(20, 0)     # after the US close, so that day's filings and quotes are visible
 
 
+def sensitivity_page() -> None:
+    st.title("Assumption sensitivity")
+    st.caption("Moves one stated assumption at a time on the last run. The fuel curve and Fed odds stay put. "
+               "The alert line is the same 20% breach probability that arms BREACH_FLIP. "
+               "This is still conditional on those inputs; it is not a forecast.")
+    run_id = st.session_state.get("run_id")
+    if not run_id:
+        st.info("Run a question first on the Run page. This page sweeps that question.")
+        return
+    try:
+        report = client().get(f"/runs/{run_id}/sensitivity")
+    except ApiError as e:
+        error_banner(e)
+        return
+    st.markdown(report["reading"])
+    line = report["line"]
+    cols = st.columns(3)
+    most = next((lever["label"] for lever in report["levers"] if lever["name"] == report["most_sensitive"]), NA)
+    cols[0].metric("Stated breach probability", pct(report["baseline_p_breach"]))
+    cols[1].metric("Moves the call most", most)
+    cols[2].metric("Same side of the alert line", "yes" if report["call_stable"] else "no")
+    for lever in report["levers"]:
+        st.subheader(lever["label"])
+        flip = lever["flip_value"]
+        swing = lever["swing"]
+        st.caption(
+            f"Stated value {num(lever['baseline_value'])} {lever['unit']}. "
+            f"Swing {pct(swing)}. "
+            + (f"Crosses the {line * 100:.0f}% line at {flip:.2f} {lever['unit']}." if flip is not None
+               else "Does not cross the alert line in this sweep.")
+        )
+        st.dataframe([{
+            "Value": f"{point['value']:.2f}",
+            "Stated": "yes" if point["is_baseline"] else "",
+            "Breach probability": pct(point["p_breach"]),
+            "Change": pct(point["delta_p_breach"]),
+            "P50 coverage": times(point["coverage_p50"]),
+            "Breakeven WTI": num(point["breakeven_wti_hold"]),
+            "At or above the line": "" if point["above_line"] is None else ("yes" if point["above_line"] else "no"),
+        } for point in lever["points"]], hide_index=True, use_container_width=True)
+        chart = [
+            {"value": point["value"], "breach probability": point["p_breach"]}
+            for point in lever["points"] if point["p_breach"] is not None
+        ]
+        if chart:
+            st.line_chart(chart, x="value", y="breach probability")
+
+
 def replay_page() -> None:
     masthead(
         "History",
@@ -505,8 +553,8 @@ def run_page() -> None:
         show_result(result)
 
 
-PAGES = {"Run": run_page, "Exposure map": exposure_page, "Peers": peers_page, "Alerts": alerts_page,
-         "Replay": replay_page}
+PAGES = {"Run": run_page, "Exposure map": exposure_page, "Peers": peers_page,
+         "Sensitivity": sensitivity_page, "Alerts": alerts_page, "Replay": replay_page}
 
 
 def main() -> None:
