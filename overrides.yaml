@@ -1,2 +1,292 @@
-# Hand-checked financial metrics will be populated in A9. No facts supplied yet.
-{}
+# Hand-checked against the filing text on 2026-10-11. Do not replace a value without the source sentence.
+# Money is USD millions. Fuel gallons are millions of gallons. The variable-rate share is a fraction.
+# debt_noncurrent, current_liabilities, and noncurrent_liabilities are for the identity checks only.
+# They are not Metric values and are not stored as facts.
+#
+# Liquidity is stated in billions in the release ("$6.9 billion", "$7.7 billion") and converted to millions here.
+
+facts:
+  # September quarter 2026. Exhibit 99.1 filed 2026-10-09.
+  # https://www.sec.gov/Archives/edgar/data/27904/000002790426000035/deltaairlinesannouncessept.htm
+  - company: DAL
+    metric: operating_income
+    value: 1454
+    unit: usd_m
+    basis: GAAP
+    period_end: 2026-09-30
+    filed_at: 2026-10-09T12:00:00Z
+    source_url: https://www.sec.gov/Archives/edgar/data/27904/000002790426000035/deltaairlinesannouncessept.htm
+    # Consolidated Statements of Operations, three months ended September 30, 2026: Operating Income 1,454
+  - company: DAL
+    metric: net_interest_expense
+    value: 146
+    unit: usd_m
+    basis: GAAP
+    period_end: 2026-09-30
+    filed_at: 2026-10-09T12:00:00Z
+    source_url: https://www.sec.gov/Archives/edgar/data/27904/000002790426000035/deltaairlinesannouncessept.htm
+    # Same statement: Interest expense, net (146)
+  - company: DAL
+    metric: fuel_gallons_m
+    value: 1146
+    unit: gallons_m
+    basis: GAAP
+    period_end: 2026-09-30
+    filed_at: 2026-10-09T12:00:00Z
+    source_url: https://www.sec.gov/Archives/edgar/data/27904/000002790426000035/deltaairlinesannouncessept.htm
+    # Statistical Summary: Fuel gallons consumed (millions) 1,146
+  - company: DAL
+    metric: fuel_price_per_gal
+    value: 3.80
+    unit: usd_per_gal
+    basis: GAAP
+    period_end: 2026-09-30
+    filed_at: 2026-10-09T12:00:00Z
+    source_url: https://www.sec.gov/Archives/edgar/data/27904/000002790426000035/deltaairlinesannouncessept.htm
+    # Statistical Summary: Average price per fuel gallon $ 3.80
+  - company: DAL
+    metric: fuel_price_per_gal
+    value: 3.61
+    unit: usd_per_gal
+    basis: ADJUSTED
+    period_end: 2026-09-30
+    filed_at: 2026-10-09T12:00:00Z
+    source_url: https://www.sec.gov/Archives/edgar/data/27904/000002790426000035/deltaairlinesannouncessept.htm
+    # Statistical Summary: Average price per fuel gallon, adjusted $ 3.61
+  - company: DAL
+    metric: debt_total
+    value: 12851
+    unit: usd_m
+    basis: GAAP
+    period_end: 2026-09-30
+    filed_at: 2026-10-09T12:00:00Z
+    source_url: https://www.sec.gov/Archives/edgar/data/27904/000002790426000035/deltaairlinesannouncessept.htm
+    # Total debt and finance lease obligations 12,851
+  - company: DAL
+    metric: debt_current
+    value: 3324
+    unit: usd_m
+    basis: GAAP
+    period_end: 2026-09-30
+    filed_at: 2026-10-09T12:00:00Z
+    source_url: https://www.sec.gov/Archives/edgar/data/27904/000002790426000035/deltaairlinesannouncessept.htm
+    # Current maturities of debt and finance leases $ 3,324
+  - company: DAL
+    metric: liquidity
+    value: 6900
+    unit: usd_m
+    basis: GAAP
+    period_end: 2026-09-30
+    filed_at: 2026-10-09T12:00:00Z
+    source_url: https://www.sec.gov/Archives/edgar/data/27904/000002790426000035/deltaairlinesannouncessept.htm
+    # "Liquidity of $6.9 billion at quarter-end"
+  - company: DAL
+    metric: adjusted_net_debt
+    value: 13350
+    unit: usd_m
+    basis: ADJUSTED
+    period_end: 2026-09-30
+    filed_at: 2026-10-09T12:00:00Z
+    source_url: https://www.sec.gov/Archives/edgar/data/27904/000002790426000035/deltaairlinesannouncessept.htm
+    # Adjusted net debt 13,350
+  - company: DAL
+    metric: revenue_gaap
+    value: 20186
+    unit: usd_m
+    basis: GAAP
+    period_end: 2026-09-30
+    filed_at: 2026-10-09T12:00:00Z
+    source_url: https://www.sec.gov/Archives/edgar/data/27904/000002790426000035/deltaairlinesannouncessept.htm
+    # Total operating revenue 20,186
+  - company: DAL
+    metric: revenue_adjusted
+    value: 17585
+    unit: usd_m
+    basis: ADJUSTED
+    period_end: 2026-09-30
+    filed_at: 2026-10-09T12:00:00Z
+    source_url: https://www.sec.gov/Archives/edgar/data/27904/000002790426000035/deltaairlinesannouncessept.htm
+    # Operating revenue, adjusted $ 17,585
+  - company: DAL
+    metric: total_assets
+    value: 86048
+    unit: usd_m
+    basis: GAAP
+    period_end: 2026-09-30
+    filed_at: 2026-10-09T12:00:00Z
+    source_url: https://www.sec.gov/Archives/edgar/data/27904/000002790426000035/deltaairlinesannouncessept.htm
+    # Total assets $ 86,048
+  - company: DAL
+    metric: total_liabilities
+    value: 63535
+    unit: usd_m
+    basis: GAAP
+    period_end: 2026-09-30
+    filed_at: 2026-10-09T12:00:00Z
+    source_url: https://www.sec.gov/Archives/edgar/data/27904/000002790426000035/deltaairlinesannouncessept.htm
+    # Total current liabilities 33,575 plus total noncurrent liabilities 29,960
+  - company: DAL
+    metric: equity
+    value: 22513
+    unit: usd_m
+    basis: GAAP
+    period_end: 2026-09-30
+    filed_at: 2026-10-09T12:00:00Z
+    source_url: https://www.sec.gov/Archives/edgar/data/27904/000002790426000035/deltaairlinesannouncessept.htm
+    # Stockholders' Equity 22,513
+
+  # June quarter 2026. Exhibit 99.1 filed 2026-07-10.
+  # https://www.sec.gov/Archives/edgar/data/27904/000002790426000029/deltaairlinesannouncesjune.htm
+  - company: DAL
+    metric: operating_income
+    value: 1864
+    unit: usd_m
+    basis: GAAP
+    period_end: 2026-06-30
+    filed_at: 2026-07-10T12:00:00Z
+    source_url: https://www.sec.gov/Archives/edgar/data/27904/000002790426000029/deltaairlinesannouncesjune.htm
+    # Operating Income 1,864 for the three months ended June 30, 2026
+  - company: DAL
+    metric: net_interest_expense
+    value: 144
+    unit: usd_m
+    basis: GAAP
+    period_end: 2026-06-30
+    filed_at: 2026-07-10T12:00:00Z
+    source_url: https://www.sec.gov/Archives/edgar/data/27904/000002790426000029/deltaairlinesannouncesjune.htm
+    # Interest expense, net (144)
+  - company: DAL
+    metric: fuel_gallons_m
+    value: 1122
+    unit: gallons_m
+    basis: GAAP
+    period_end: 2026-06-30
+    filed_at: 2026-07-10T12:00:00Z
+    source_url: https://www.sec.gov/Archives/edgar/data/27904/000002790426000029/deltaairlinesannouncesjune.htm
+    # Fuel gallons consumed (millions) 1,122
+  - company: DAL
+    metric: fuel_price_per_gal
+    value: 3.66
+    unit: usd_per_gal
+    basis: GAAP
+    period_end: 2026-06-30
+    filed_at: 2026-07-10T12:00:00Z
+    source_url: https://www.sec.gov/Archives/edgar/data/27904/000002790426000029/deltaairlinesannouncesjune.htm
+    # Average price per fuel gallon $ 3.66
+  - company: DAL
+    metric: fuel_price_per_gal
+    value: 3.93
+    unit: usd_per_gal
+    basis: ADJUSTED
+    period_end: 2026-06-30
+    filed_at: 2026-07-10T12:00:00Z
+    source_url: https://www.sec.gov/Archives/edgar/data/27904/000002790426000029/deltaairlinesannouncesjune.htm
+    # Average price per fuel gallon, adjusted $ 3.93
+  - company: DAL
+    metric: debt_total
+    value: 13952
+    unit: usd_m
+    basis: GAAP
+    period_end: 2026-06-30
+    filed_at: 2026-07-10T12:00:00Z
+    source_url: https://www.sec.gov/Archives/edgar/data/27904/000002790426000029/deltaairlinesannouncesjune.htm
+    # Total debt and finance lease obligations 13,952
+  - company: DAL
+    metric: debt_current
+    value: 3442
+    unit: usd_m
+    basis: GAAP
+    period_end: 2026-06-30
+    filed_at: 2026-07-10T12:00:00Z
+    source_url: https://www.sec.gov/Archives/edgar/data/27904/000002790426000029/deltaairlinesannouncesjune.htm
+    # Current maturities of debt and finance leases $ 3,442
+  - company: DAL
+    metric: liquidity
+    value: 7700
+    unit: usd_m
+    basis: GAAP
+    period_end: 2026-06-30
+    filed_at: 2026-07-10T12:00:00Z
+    source_url: https://www.sec.gov/Archives/edgar/data/27904/000002790426000029/deltaairlinesannouncesjune.htm
+    # "Liquidity of $7.7 billion"
+  - company: DAL
+    metric: adjusted_net_debt
+    value: 13591
+    unit: usd_m
+    basis: ADJUSTED
+    period_end: 2026-06-30
+    filed_at: 2026-07-10T12:00:00Z
+    source_url: https://www.sec.gov/Archives/edgar/data/27904/000002790426000029/deltaairlinesannouncesjune.htm
+    # Adjusted net debt $ 13,591
+  - company: DAL
+    metric: revenue_gaap
+    value: 19757
+    unit: usd_m
+    basis: GAAP
+    period_end: 2026-06-30
+    filed_at: 2026-07-10T12:00:00Z
+    source_url: https://www.sec.gov/Archives/edgar/data/27904/000002790426000029/deltaairlinesannouncesjune.htm
+    # Total operating revenue 19,757
+  - company: DAL
+    metric: revenue_adjusted
+    value: 17666
+    unit: usd_m
+    basis: ADJUSTED
+    period_end: 2026-06-30
+    filed_at: 2026-07-10T12:00:00Z
+    source_url: https://www.sec.gov/Archives/edgar/data/27904/000002790426000029/deltaairlinesannouncesjune.htm
+    # Operating revenue, adjusted $ 17,666
+  - company: DAL
+    metric: total_assets
+    value: 86321
+    unit: usd_m
+    basis: GAAP
+    period_end: 2026-06-30
+    filed_at: 2026-07-10T12:00:00Z
+    source_url: https://www.sec.gov/Archives/edgar/data/27904/000002790426000029/deltaairlinesannouncesjune.htm
+    # Total assets $ 86,321
+  - company: DAL
+    metric: total_liabilities
+    value: 64506
+    unit: usd_m
+    basis: GAAP
+    period_end: 2026-06-30
+    filed_at: 2026-07-10T12:00:00Z
+    source_url: https://www.sec.gov/Archives/edgar/data/27904/000002790426000029/deltaairlinesannouncesjune.htm
+    # Total current liabilities 33,604 plus total noncurrent liabilities 30,902
+  - company: DAL
+    metric: equity
+    value: 21815
+    unit: usd_m
+    basis: GAAP
+    period_end: 2026-06-30
+    filed_at: 2026-07-10T12:00:00Z
+    source_url: https://www.sec.gov/Archives/edgar/data/27904/000002790426000029/deltaairlinesannouncesjune.htm
+    # Stockholders' Equity 21,815
+  - company: DAL
+    metric: variable_debt_share
+    value: 0.22
+    unit: fraction
+    basis: GAAP
+    period_end: 2026-06-30
+    filed_at: 2026-07-10T12:00:00Z
+    source_url: https://www.sec.gov/Archives/edgar/data/27904/000002790426000029/deltaairlinesannouncesjune.htm
+    # "78 percent fixed rate debt and 22 percent variable rate debt"
+
+checks:
+  - company: DAL
+    period_end: 2026-09-30
+    basis: GAAP
+    debt_noncurrent: 9527
+    current_liabilities: 33575
+    noncurrent_liabilities: 29960
+    source_url: https://www.sec.gov/Archives/edgar/data/27904/000002790426000035/deltaairlinesannouncessept.htm
+    # Debt and finance leases 9,527; Total current liabilities 33,575; Total noncurrent liabilities 29,960
+  - company: DAL
+    period_end: 2026-06-30
+    basis: GAAP
+    debt_noncurrent: 10510
+    current_liabilities: 33604
+    noncurrent_liabilities: 30902
+    source_url: https://www.sec.gov/Archives/edgar/data/27904/000002790426000029/deltaairlinesannouncesjune.htm
+    # Debt and finance leases 10,510; Total current liabilities 33,604; Total noncurrent liabilities 30,902
