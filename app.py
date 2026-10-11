@@ -279,6 +279,63 @@ def alerts_page() -> None:
     } for a in feed], hide_index=True, use_container_width=True)
 
 
+LABEL_TEXT = {"hand": "hand", "llm": "LLM (unvalidated)"}
+
+
+def exposure_page() -> None:
+    st.title("Exposure map")
+    st.caption("Markets that bear on the decision, by factor. Factors are ordered by total trust. "
+               "LLM-written labels are not validated; hand labels are.")
+    try:
+        views = client().get("/markets")
+    except ApiError as e:
+        error_banner(e)
+        return
+    views = [v for v in views if v.get("label") and v["label"].get("relevant")]
+    if not views:
+        st.info("No markets are labeled yet. Run `make ingest` with `make api` running.")
+        return
+    weight: dict[str, float] = {}
+    for v in views:
+        weight[v["label"]["factor"]] = weight.get(v["label"]["factor"], 0.0) + ((v.get("trust") or {}).get("score") or 0.0)
+    views.sort(key=lambda v: (-weight[v["label"]["factor"]], -((v.get("trust") or {}).get("score") or 0.0)))
+    st.dataframe([{
+        "Factor": v["label"]["factor"], "Market": v["meta"]["title"], "Venue": v["meta"]["venue"],
+        "YES means": f"{v['label']['factor']} {v['label']['yes_moves_factor']}",
+        "Mid": num((v.get("trust") or {}).get("mid")), "Trust": num((v.get("trust") or {}).get("score")),
+        "Stale": "yes" if v.get("stale") else "no", "Label": LABEL_TEXT.get(v["label"]["label_source"], "?"),
+    } for v in views], hide_index=True, use_container_width=True)
+
+
+REPLAY_FIRST_DAY = date(2026, 7, 1)
+REPLAY_DEFAULT_DAY = date(2026, 7, 10)  # June-quarter release; the demo replay (CLAUDE.md section 11)
+REPLAY_TIME_UTC = clock_time(20, 0)     # after the US close, so that day's filings and quotes are visible
+
+
+def replay_page() -> None:
+    st.title("Replay")
+    st.caption("Run the same question as of an earlier time. Only data visible then is used; "
+               "backfilled quotes have capped trust and the run says so (BACKFILL_INPUTS).")
+    try:
+        tickers = [c["ticker"] for c in companies()]
+    except ApiError:
+        tickers = ["DAL"]
+    today = datetime.now(timezone.utc).date()
+    ticker = st.selectbox("Company", tickers, key="replay_ticker")
+    day = st.slider("As of (UTC date)", min_value=REPLAY_FIRST_DAY, max_value=max(today, REPLAY_DEFAULT_DAY),
+                    value=REPLAY_DEFAULT_DAY, format="YYYY-MM-DD")
+    as_of = min(datetime.combine(day, REPLAY_TIME_UTC, tzinfo=timezone.utc), datetime.now(timezone.utc))
+    st.warning(f"Replay as of {as_of:%Y-%m-%d %H:%M} UTC: later data is invisible to this run.")
+    if not st.button("Replay"):
+        return
+    body = {"ticker": ticker, "as_of": as_of.isoformat().replace("+00:00", "Z"), "note_size_usd_m": 1000.0,
+            "tenor_years": 7, "coupon_spread_bp": 150.0, "coverage_threshold": 3.0, "fuel_passthrough": 1.0,
+            "include_peers": True}
+    result = submit(body)
+    if result is not None:
+        show_result(await_brief(result))
+
+
 def run_page() -> None:
     st.title("Market-implied scenario run")
     st.caption("A conditional answer given market-implied odds and stated assumptions. Not a forecast or trading signal.")
@@ -295,7 +352,8 @@ def run_page() -> None:
         show_result(result)
 
 
-PAGES = {"Run": run_page, "Peers": peers_page, "Alerts": alerts_page}
+PAGES = {"Run": run_page, "Exposure map": exposure_page, "Peers": peers_page, "Alerts": alerts_page,
+         "Replay": replay_page}
 
 
 def main() -> None:

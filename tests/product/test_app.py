@@ -239,6 +239,59 @@ def test_alerts_page_shows_a_failed_test_alert(api):
     assert "E_SOURCE_UNAVAILABLE" in "\n".join(e.value for e in at.error)
 
 
+# ---- Exposure map (C13) ----
+
+def market(mid_id, factor, label_source, score, mid, kind="close_above", outcome=None, stale=False):
+    """ILLUSTRATIVE market rows for the page test."""
+    return {"meta": {"venue": "kalshi", "market_id": mid_id, "token_id": None, "title": f"{mid_id} title", "rules": "",
+                     "close_time": "2026-12-01T00:00:00Z", "kind": kind, "outcome": outcome, "threshold": None,
+                     "threshold_unit": None, "group_key": "G"},
+            "label": {"relevant": True, "factor": factor, "yes_moves_factor": "up", "mechanism": "m",
+                      "citation": None, "label_source": label_source},
+            "latest": None,
+            "trust": {"venue": "kalshi", "market_id": mid_id, "score": score, "mid": mid, "components": {},
+                      "excluded_reason": None},
+            "stale": stale}
+
+
+def test_exposure_map_ranks_factors_by_trust_and_marks_llm_labels(api):
+    api.get("/markets").respond(200, json=[
+        market("FED-HIKE", "rates", "hand", 0.70, 0.17, kind="per_meeting", outcome="hike"),
+        market("WTI-90", "fuel", "llm", 0.95, 0.62), market("WTI-100", "fuel", "hand", 0.90, 0.35),
+    ])
+    at = open_page(start(), "Exposure map")
+    table = at.dataframe[0].value
+    assert list(table["Factor"]) == ["fuel", "fuel", "rates"]      # fuel's total trust outranks rates
+    assert list(table["Label"]) == ["LLM (unvalidated)", "hand", "hand"]
+    assert list(table["Trust"]) == ["0.95", "0.90", "0.70"]
+    assert list(table["YES means"])[0] == "fuel up"
+
+
+def test_exposure_map_with_no_markets(api):
+    api.get("/markets").respond(200, json=[])
+    at = open_page(start(), "Exposure map")
+    assert any("No markets" in i.value for i in at.info)
+
+
+# ---- Replay (C13) ----
+
+def test_replay_at_july_10_shows_a_run_with_backfill_inputs(api):
+    body = {"ticker": "DAL", "note_size_usd_m": 1000, "tenor_years": 7, "coupon_spread_bp": 150}
+
+    def handler(request: httpx.Request):
+        sent = json.loads(request.content)
+        run = run_json(sent | {"as_of": sent["as_of"]})
+        return httpx.Response(201, json=run | {"flags": run["flags"] + ["BACKFILL_INPUTS"]})
+    route = api.post("/runs").mock(side_effect=handler)
+    at = open_page(start(), "Replay")
+    assert at.slider[-1].value.isoformat() == "2026-07-10"          # the demo replay date by default
+    next(b for b in at.button if b.label == "Replay").click().run()
+    sent = json.loads(route.calls.last.request.content)
+    assert sent["as_of"] == "2026-07-10T20:00:00Z" and sent["ticker"] == "DAL"
+    assert any("Replay as of 2026-07-10 20:00 UTC" in w.value for w in at.warning)
+    assert "BACKFILL_INPUTS" in page_text(at)
+
+
 # ---- errors ----
 
 def test_error_banner_shows_code_message_and_missing_facts(api):
