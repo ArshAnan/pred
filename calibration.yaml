@@ -1,0 +1,65 @@
+# Resolved Kalshi markets from /historical/markets on 2026-10-11.
+# last_price is last_price_dollars. outcome is the market result, yes or no.
+# Polymarket resolved CPI and WTI markets were found, but outcomePrices were the
+# settlement print (0 or 1), not a trade before resolution, so they are not listed.
+rows:
+  - venue: kalshi
+    market_id: KXWTI-26AUG0714-T81.99
+    resolved_at: "2026-08-08T02:31:25.795318Z"
+    outcome: "no"
+    last_price: 0.01
+    # Will the WTI crude oil settlement price be above 81.99 USD/Bbl on Aug 7, 2026?
+  - venue: kalshi
+    market_id: KXWTI-26AUG0714-T81.49
+    resolved_at: "2026-08-08T02:31:25.795318Z"
+    outcome: "no"
+    last_price: 0.01
+    # Will the WTI crude oil settlement price be above 81.49 USD/Bbl on Aug 7, 2026?
+  - venue: kalshi
+    market_id: KXFEDDECISION-26JUL-H26
+    resolved_at: "2026-07-29T18:07:36.155125Z"
+    outcome: "no"
+    last_price: 0.01
+    # Will the Federal Reserve Hike rates by >25bps at their July 2026 meeting?
+  - venue: kalshi
+    market_id: KXFEDDECISION-26JUL-H25
+    resolved_at: "2026-07-29T18:07:36.155125Z"
+    outcome: "no"
+    last_price: 0.18
+    # Will the Federal Reserve Hike rates by 25bps at their July 2026 meeting?
+  - venue: kalshi
+    market_id: KXFEDDECISION-26JUL-H0
+    resolved_at: "2026-07-29T18:07:36.155125Z"
+    outcome: "yes"
+    last_price: 0.82
+    # Will the Federal Reserve Hike rates by 0bps at their July 2026 meeting?
+  - venue: kalshi
+    market_id: KXCPI-26JUN-T-0.3
+    resolved_at: "2026-07-14T12:43:19.492803Z"
+    outcome: "no"
+    last_price: 0.91
+    # Will CPI rise more than -0.3% in June 2026?
+  - venue: kalshi
+    market_id: KXCPI-26JUN-T-0.2
+    resolved_at: "2026-07-14T12:43:19.492803Z"
+    outcome: "no"
+    last_price: 0.43
+    # Will CPI rise more than -0.2% in June 2026?
+  - venue: kalshi
+    market_id: KXCPI-26MAY-T-0.3
+    resolved_at: "2026-06-10T13:35:04.522844Z"
+    outcome: "yes"
+    last_price: 0.99
+    # Will CPI rise more than -0.3% in May 2026?
+  - venue: kalshi
+    market_id: KXCPICORE-26JUN-T1.0
+    resolved_at: "2026-07-14T13:46:09.485872Z"
+    outcome: "no"
+    last_price: 0.04
+    # Will CPI Core rise more than 1.0% in June?
+  - venue: kalshi
+    market_id: KXCPICORE-26JUN-T0.9
+    resolved_at: "2026-07-14T13:46:09.485872Z"
+    outcome: "no"
+    last_price: 0.01
+    # Will CPI Core rise more than 0.9% in June?

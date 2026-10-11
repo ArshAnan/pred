@@ -208,6 +208,18 @@ def test_july_10_returns_the_june_quarter():
     assert all(fact.period_end < date(2026, 9, 30) for fact in facts)
 
 
+def test_every_override_value_cites_a_filing():
+    import yaml
+    from pathlib import Path
+
+    raw = yaml.safe_load(Path("overrides.yaml").read_text())
+    for row in raw["facts"]:
+        assert row["source_url"].startswith("https://www.sec.gov/Archives/"), row["metric"]
+    for row in raw["missing"]:
+        assert row["source_url"].startswith("https://www.sec.gov/Archives/")
+        assert row["reason"]
+
+
 def test_peer_metrics_are_present_or_explained():
     import yaml
     from pathlib import Path

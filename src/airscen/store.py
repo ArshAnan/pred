@@ -13,6 +13,8 @@ import threading
 from datetime import date, datetime, timezone
 from pathlib import Path
 
+import yaml
+
 from airscen.types import (
     Alert,
     Basis,
@@ -132,6 +134,46 @@ def _differs(left: float, right: float) -> bool:
 
 def _enum_value(value) -> str:
     return value.value if hasattr(value, "value") else str(value)
+
+
+def _calibration_time(value) -> str:
+    if isinstance(value, datetime):
+        return _iso(value)
+    return str(value)
+
+
+def _load_calibration(path) -> list[dict]:
+    target = _find_calibration(path)
+    loaded = yaml.safe_load(target.read_text())
+    rows = loaded.get("rows") if isinstance(loaded, dict) else None
+    if not rows:
+        return []
+    cleaned = []
+    for row in rows:
+        cleaned.append({
+            "venue": row["venue"],
+            "market_id": row["market_id"],
+            "resolved_at": _calibration_time(row["resolved_at"]),
+            "outcome": row["outcome"],
+            "last_price": float(row["last_price"]),
+        })
+    return cleaned
+
+
+def _find_calibration(path) -> Path:
+    if path is not None:
+        return Path(path)
+    starts = [Path.cwd(), Path(__file__).resolve().parent]
+    seen: set[Path] = set()
+    for start in starts:
+        for directory in [start, *start.parents]:
+            if directory in seen:
+                continue
+            seen.add(directory)
+            candidate = directory / "calibration.yaml"
+            if candidate.is_file():
+                return candidate
+    raise StoreError("calibration.yaml was not found", code="E_STORE_UNAVAILABLE")
 
 
 class Repository:
@@ -365,6 +407,35 @@ class Repository:
                 continue
             found.append((meta, label))
         return found
+
+    def calibration_rows(self, path=None) -> list[dict]:
+        """Join calibration.yaml to the latest snapshot strictly before resolution.
+
+        The file is not an eighth table. A market with no earlier snapshot is
+        still returned so the resolved outcome stays visible.
+        """
+        joined = []
+        for row in _load_calibration(path):
+            snap = self._fetchone(
+                """
+                SELECT * FROM snapshots
+                WHERE venue = ? AND market_id = ? AND ts < ?
+                ORDER BY ts DESC LIMIT 1
+                """,
+                (row["venue"], row["market_id"], row["resolved_at"]),
+            )
+            item = dict(row)
+            if snap is None:
+                item.update(snapshot_ts=None, snapshot_last=None, bid=None, ask=None)
+            else:
+                item.update(
+                    snapshot_ts=snap["ts"],
+                    snapshot_last=snap["last"],
+                    bid=snap["bid"],
+                    ask=snap["ask"],
+                )
+            joined.append(item)
+        return joined
 
     def content_hash_for(self, venue, market_id: str) -> str | None:
         row = self._fetchone(

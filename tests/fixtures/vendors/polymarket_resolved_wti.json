@@ -1,0 +1,24 @@
+[
+  {
+    "question": "Will WTI Crude Oil (WTI) hit (HIGH) $90 in October?",
+    "conditionId": "0x7c67674dbf198d26ea55732698b1a16ec463f4b114c69ff5f751ef8db2c7ce8d",
+    "id": "4936104",
+    "outcomePrices": "[\"1\", \"0\"]",
+    "outcomes": "[\"Yes\", \"No\"]",
+    "closed": true,
+    "endDate": "2026-11-01T03:59:59.999Z",
+    "umaResolutionStatus": "resolved",
+    "clobTokenIds": "[\"30681641033902767237127525502671770588800318048581535322497596476760696415279\", \"72689829863134931009859583845484052426589969861934520323346130362083405681743\"]"
+  },
+  {
+    "question": "Will WTI Crude Oil (WTI) hit (LOW) $90 in October?",
+    "conditionId": "0x5aed2546ea9541860022481b89c0d90ed557c687e4b173d9f5fff8ddbb5aa075",
+    "id": "5181360",
+    "outcomePrices": "[\"1\", \"0\"]",
+    "outcomes": "[\"Yes\", \"No\"]",
+    "closed": true,
+    "endDate": "2026-11-01T03:59:59.999Z",
+    "umaResolutionStatus": "resolved",
+    "clobTokenIds": "[\"60345204364635387536307056423460779090609682344449015867110791065584405136669\", \"112417944013001914591683354034593236847672923706919098685665071103873527586027\"]"
+  }
+]

@@ -69,7 +69,18 @@ Format of each item: task → LLD reference → **Done when**.
 
 ## Block 4 → CP4 Eval and demo freeze
 
-- [ ] **A20** Data for B's calibration check: resolved Fed, CPI and WTI markets with the last price before resolution and the outcome (from Kalshi `/historical/*` and Polymarket). **Done when** B has a table they can load through the store.
-- [ ] **A21** Confirm `overrides.yaml` is hand-checked for all three airlines (B's number-correctness check depends on it). **Done when** each value has a source URL comment.
-- [ ] **A22** Help rehearse: run the full demo from a clean clone on the demo machine (Polymarket access from that machine is an open item). **Done when** it runs.
+- [x] **A20** Data for B's calibration check: resolved Fed, CPI and WTI markets with the last price before resolution and the outcome (from Kalshi `/historical/*` and Polymarket). **Done when** B has a table they can load through the store.
+
+  `calibration.yaml` plus `Repository.calibration_rows()`. Rows are Kalshi `/historical/markets` for `KXFEDDECISION`, `KXCPI`, `KXCPICORE`, and `KXWTI`, with `last_price_dollars` and `result`. Outcomes are quoted `"yes"` / `"no"` so YAML does not turn them into booleans. Polymarket resolved CPI and WTI markets were recorded (`polymarket_resolved_cpi.json`, `polymarket_resolved_wti.json`); their `outcomePrices` are the settlement print, 0 or 1, so they are not in the calibration file. No Fed-decision Polymarket market in that search was resolved.
+- [x] **A21** Confirm `overrides.yaml` is hand-checked for all three airlines (B's number-correctness check depends on it). **Done when** each value has a source URL comment.
+
+  Every `facts` row and every `missing` row has an `https://www.sec.gov/Archives/` URL. Re-read against the saved exhibits on 2026-10-11.
+- [x] **A22** Help rehearse: run the full demo from a clean clone on the demo machine (Polymarket access from that machine is an open item). **Done when** it runs.
+
+  This branch cannot run the five-minute demo. `make ingest`, `make backfill`, `make warm`, and `make eval` are still Lane C placeholders. What the other lanes still own:
+
+  - Lane B: `llm.py` still raises, so extract and scout stay on overrides and unlabeled markets. `scout.label` is still a stub. The engine modules on this tree can score a quote; the worker catches `NotImplementedError` from `trust.clean` if that changes.
+  - Lane C: API lifespan should call `load_settings`, `Repository.migrate`, `build_adapters`, and `WorkerLoop`, then read `status()`, `last_snapshot_age_s()`, and `db_ok()` into `HealthStatus`. `latest_facts` returns `(facts, flags)`. Streamlit, Slack, and `make eval` are not on this branch.
+  - This checkout has no `.env`. `load_settings` will not start until `SEC_USER_AGENT` is set. `FRED_API_KEY` is unset, so there are no `DGS10` or `DCOILWTICO` rows and none were invented. GDELT returned 429. Alpaca without keys returns 401 for both the bars path and a bogus path.
+  - A one-shot ingest on 2026-10-11 wrote DAL facts and 45 shortlist snapshots into gitignored `data/app.db`. Three quote ticks refreshed those rows in place. That is not the demo.
 - [ ] **CP4 merged**
