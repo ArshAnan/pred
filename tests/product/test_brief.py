@@ -113,5 +113,10 @@ def test_check_numbers_ignores_labels_ids_dates_and_list_markers(brief, worked_e
     assert brief.check_numbers(md, worked_example_run)
 
 
+def test_check_numbers_ignores_a_hex_fingerprint_and_still_rejects_billions(brief, worked_example_run):
+    assert brief.check_numbers("Data version `235b1c2d`.", worked_example_run)
+    assert not brief.check_numbers("The shock costs 235b.", worked_example_run)
+
+
 def test_check_numbers_rejects_a_date_not_in_the_input(brief, worked_example_run):
     assert not brief.check_numbers("As of 2026-11-15 the answer changes.", worked_example_run)

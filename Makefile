@@ -37,7 +37,7 @@ help:
 	@echo   setup     create .venv, install requirements and the package with dev extras, copy .env.example to .env
 	@echo   api       start the API server on $(API_HOST):$(API_PORT), one worker
 	@echo   ui        start Streamlit on $(UI_HOST):$(UI_PORT)
-	@echo   web       start the TypeScript app on 127.0.0.1:5173 (needs make api)
+	@echo "  web       start the TypeScript app on 127.0.0.1:5173 (needs make api)"
 	@echo   test      run pytest, extra flags via PYTEST_ARGS=...
 	@echo   ingest    fetch markets, filings and macro through the API, needs make api running
 	@echo   backfill  backfill quotes for a replay window, usage: make backfill WINDOW=2026-07-01..2026-07-12

@@ -21,6 +21,7 @@ _SERVICE = {
     "airscen.factors",
     "airscen.scenario",
     "airscen.brief",
+    "airscen.proof",
 }
 
 
@@ -82,6 +83,9 @@ def _allowed_airscen(rel: str) -> set[str] | None:
         return {"airscen.service", "airscen.store", "airscen.types", "airscen.config"}
     if rel == "src/airscen/brief.py":
         return {"airscen.types", "airscen.llm"}
+    if rel == "src/airscen/proof.py":
+        # A second implementation of the published formulas. It must not call the engine.
+        return {"airscen.types", "airscen.brief"}
     if rel == "app.py":
         # Streamlit reaches the API only through the typed client (DD-1).
         return {"airscen.types", "airscen.ui.client"}

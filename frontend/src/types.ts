@@ -117,6 +117,37 @@ export type Alert = {
   payload: Record<string, unknown>
 }
 
+export type ProofCheck = {
+  code: string
+  title: string
+  passed: boolean
+  detail: string
+}
+
+export type InputTrace = {
+  kind: 'fact' | 'macro' | 'market'
+  name: string
+  value: string
+  source: string
+  as_of_visible: boolean
+  used_in_decision: boolean
+  extraction: string | null
+  validated: boolean | null
+  note: string
+}
+
+export type DecisionProof = {
+  run_id: string
+  company: string
+  as_of: string
+  verdict: 'proved' | 'not_proved'
+  statement: string
+  checks: ProofCheck[]
+  inputs: InputTrace[]
+  llm_status: string
+  decision_numbers_from_llm: boolean
+}
+
 export type RunBody = {
   ticker: string
   as_of: string | null

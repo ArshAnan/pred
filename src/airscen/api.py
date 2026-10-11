@@ -25,8 +25,8 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from airscen import config, service, store
 from airscen.types import (
-    AirScenError, Alert, Company, Fact, Factor, HealthStatus, LLMStatus, MarketView, RequestError, RunRequest, RunResult,
-    RunSummary, Snapshot, SourceError, StoreError, Venue, WorkerStatus,
+    AirScenError, Alert, Company, DecisionProof, Fact, Factor, HealthStatus, LLMStatus, MarketView, RequestError,
+    RunRequest, RunResult, RunSummary, Snapshot, SourceError, StoreError, Venue, WorkerStatus,
 )
 
 PREFIX = "/api/v1"
@@ -209,6 +209,11 @@ def _router() -> APIRouter:
     @router.get("/runs/{run_id}", response_model=RunResult)
     def get_run(request: Request, run_id: str) -> RunResult:
         return _service(request).get_run(run_id)
+
+    @router.get("/runs/{run_id}/proof", response_model=DecisionProof)
+    def prove_run(request: Request, run_id: str) -> DecisionProof:
+        """Recompute the stored decision from the inputs visible at its as-of time."""
+        return _service(request).prove(run_id)
 
     @router.get("/runs", response_model=list[RunSummary])
     def list_runs(request: Request, ticker: Optional[str] = None, limit: int = Query(50, ge=1, le=200)) -> list[RunSummary]:
