@@ -26,7 +26,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from airscen import config, service, store
 from airscen.types import (
     AirScenError, Alert, Company, Fact, Factor, HealthStatus, LLMStatus, MarketView, RequestError, RunRequest, RunResult,
-    RunSummary, Snapshot, SourceError, StoreError, Venue, WorkerStatus,
+    RunSummary, SensitivityReport, Snapshot, SourceError, StoreError, Venue, WorkerStatus,
 )
 
 PREFIX = "/api/v1"
@@ -209,6 +209,11 @@ def _router() -> APIRouter:
     @router.get("/runs/{run_id}", response_model=RunResult)
     def get_run(request: Request, run_id: str) -> RunResult:
         return _service(request).get_run(run_id)
+
+    @router.get("/runs/{run_id}/sensitivity", response_model=SensitivityReport)
+    def run_sensitivity(request: Request, run_id: str) -> SensitivityReport:
+        """Sweep the stated assumptions on a saved run. Does not create another run."""
+        return _service(request).sensitivity(run_id)
 
     @router.get("/runs", response_model=list[RunSummary])
     def list_runs(request: Request, ticker: Optional[str] = None, limit: int = Query(50, ge=1, le=200)) -> list[RunSummary]:
