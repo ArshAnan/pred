@@ -83,4 +83,5 @@ Format of each item: task → LLD reference → **Done when**.
   - Lane C: API lifespan should call `load_settings`, `Repository.migrate`, `build_adapters`, and `WorkerLoop`, then read `status()`, `last_snapshot_age_s()`, and `db_ok()` into `HealthStatus`. `latest_facts` returns `(facts, flags)`. Streamlit, Slack, and `make eval` are not on this branch.
   - This checkout has no `.env`. `load_settings` will not start until `SEC_USER_AGENT` is set. `FRED_API_KEY` is unset, so there are no `DGS10` or `DCOILWTICO` rows and none were invented. GDELT returned 429. Alpaca without keys returns 401 for both the bars path and a bogus path.
   - A one-shot ingest on 2026-10-11 wrote DAL facts and 45 shortlist snapshots into gitignored `data/app.db`. Three quote ticks refreshed those rows in place. That is not the demo.
+  - A clean virtualenv (`pip install -e ".[dev]"`) then `pytest` passed 223 tests on 2026-10-11. `make test` on the existing venv passed the same 223.
 - [ ] **CP4 merged**
