@@ -83,7 +83,7 @@ def test_missing_variable_debt_share_is_422_naming_it():
     assert exc.value.code == "E_MISSING_FACT"
     assert exc.value.details["missing"] == ["variable_debt_share"]
     assert "variable_debt_share" in exc.value.message
-    assert store.runs == {}
+    assert store.saved == {}
 
 
 def test_all_missing_inputs_are_named_together():

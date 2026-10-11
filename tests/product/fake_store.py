@@ -4,10 +4,13 @@ store (or their tests/fakes/fake_repo.py, CP0_DECISIONS R5) is on main. Replace 
 Return shapes mirror arnav-lane-A's store.py (A2/A3):
   latest_facts(company, as_of)                  -> (list[Fact], set[str] flags)
   latest_snapshot(venue, market_id, as_of)      -> (Snapshot | None, stale: bool)
+  snapshot_series(venue, market_id, start, end, as_of) -> list[Snapshot], oldest first
   markets(factor=None)                          -> list[MarketView] (meta and label only)
   macro_series(series_id, start, end, as_of)    -> list[MacroObs]
   data_version(as_of)                           -> str
   save_run(run), get_run(run_id) -> RunResult | None
+  runs(ticker=None, limit=50) -> list[RunResult], newest first. NOT in lane A's store yet: GET /runs
+      needs it; lane A to add it (the runs table already has company and created_at).
 
 `seed_worked_example` loads the LLD section 6 worked example. ILLUSTRATIVE: market ids, quotes,
 the WTI ladder, DGS10 = 4.00 (so the coupon is 5.5% at a 150 bp spread) and W_bar = 85 are
@@ -36,9 +39,17 @@ class FakeStore:
         self.market_views: list[MarketView] = []
         self.snapshots: list[Snapshot] = []
         self.macro: list[MacroObs] = []
-        self.runs: dict[str, RunResult] = {}
+        self.saved: dict[str, RunResult] = {}
+
+    def migrate(self):
+        pass  # nothing to create in memory
 
     # ---- reads ----
+    def snapshot_series(self, venue, market_id, start, end, as_of):
+        rows = [s for s in self.snapshots if s.venue == venue and s.market_id == market_id
+                and start <= s.ts <= end and s.ts <= as_of]
+        return sorted(rows, key=lambda s: s.ts)
+
     def latest_facts(self, company, as_of):
         visible = [f for f in self.facts if f.company == company and f.validated and f.filed_at <= as_of]
         best: dict[tuple, Fact] = {}
@@ -69,10 +80,14 @@ class FakeStore:
 
     # ---- writes ----
     def save_run(self, run):
-        self.runs[run.run_id] = run
+        self.saved[run.run_id] = run
 
     def get_run(self, run_id):
-        return self.runs.get(run_id)
+        return self.saved.get(run_id)
+
+    def runs(self, ticker=None, limit=50):
+        rows = [r for r in self.saved.values() if ticker is None or r.company == ticker]
+        return sorted(rows, key=lambda r: r.created_at, reverse=True)[:limit]
 
 
 # ---- worked example seed ----
