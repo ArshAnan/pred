@@ -16,7 +16,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any, Optional
 
 from airscen import factors, scenario, trust
-from airscen.brief import template_brief
+from airscen.brief import brief_problems, llm_brief, template_brief
 from airscen.types import (
     AirScenError, Basis, Brief, DataError, Fact, Factor, MarketMeta, MarketView, Metric, RequestError, RunRequest,
     RunResult, RunSummary, ScenarioInputs, Snapshot, SourceError, TrustResult, Venue,
@@ -105,8 +105,34 @@ class RunService:
             raise RequestError(f"Unknown run {run_id}", code="E_NOT_FOUND", details={"run_id": run_id})
         return run
 
-    def finish_brief(self, run_id):
-        raise NotImplementedError  # C9
+    def finish_brief(self, run_id: str) -> None:
+        """Background step after POST /runs: try the LLM brief and keep it only if it is faithful.
+
+        ready: within 400 words and every number traces to the run or its facts. rejected: it does not,
+        so the template stays. failed: every provider failed (LLMError) or something else broke.
+        """
+        if self.llm is None:
+            return
+        run = self.get_run(run_id)
+        if run.brief.llm_status != "pending":
+            return
+        facts, _ = self.repo.latest_facts(run.company, run.as_of)
+        try:
+            md = llm_brief(run, self.llm, facts)
+        except AirScenError as e:
+            log.warning("brief for %s failed: %s %s", run_id, e.code, e.message)
+            self.repo.update_run_brief(run_id, None, "failed")
+            return
+        except Exception:
+            log.exception("brief for %s failed", run_id)
+            self.repo.update_run_brief(run_id, None, "failed")
+            return
+        problems = brief_problems(md, run, facts)
+        if problems:
+            log.warning("brief for %s rejected: %s", run_id, "; ".join(problems))
+            self.repo.update_run_brief(run_id, None, "rejected")
+        else:
+            self.repo.update_run_brief(run_id, md, "ready")
 
     # ---- reads for the API (every one takes an as_of; DD-4) ----
 

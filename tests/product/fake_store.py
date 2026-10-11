@@ -8,7 +8,7 @@ Return shapes mirror arnav-lane-A's store.py (A2/A3):
   markets(factor=None)                          -> list[MarketView] (meta and label only)
   macro_series(series_id, start, end, as_of)    -> list[MacroObs]
   data_version(as_of)                           -> str
-  save_run(run), get_run(run_id) -> RunResult | None
+  save_run(run), get_run(run_id) -> RunResult | None, update_run_brief(run_id, md, status)
   runs(ticker=None, limit=50) -> list[RunResult], newest first. NOT in lane A's store yet: GET /runs
       needs it; lane A to add it (the runs table already has company and created_at).
 
@@ -84,6 +84,11 @@ class FakeStore:
 
     def get_run(self, run_id):
         return self.saved.get(run_id)
+
+    def update_run_brief(self, run_id, md, status):
+        run = self.saved[run_id]
+        self.saved[run_id] = run.model_copy(update={"brief": run.brief.model_copy(
+            update={"llm_md": md, "llm_status": status})})
 
     def runs(self, ticker=None, limit=50):
         rows = [r for r in self.saved.values() if ticker is None or r.company == ticker]

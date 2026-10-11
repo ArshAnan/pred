@@ -6,8 +6,11 @@ library, never the store or the engine (DD-1). Run with `make ui`.
 
 from __future__ import annotations
 
+import os
+import time
 import uuid
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, timezone
+from datetime import time as clock_time
 
 import streamlit as st
 
@@ -107,7 +110,7 @@ def run_form() -> dict | None:
             peers = st.checkbox("Include peers", value=True)
             use_now = st.checkbox("Use the current time", value=True)
             as_of_date = st.date_input("As of date (UTC)", value=date.today())
-            as_of_time = st.time_input("As of time (UTC)", value=time(0, 0))
+            as_of_time = st.time_input("As of time (UTC)", value=clock_time(0, 0))
         if not st.form_submit_button("Run"):
             return None
     as_of = None if use_now else datetime.combine(as_of_date, as_of_time, tzinfo=timezone.utc)
@@ -116,6 +119,20 @@ def run_form() -> dict | None:
         "note_size_usd_m": float(note), "tenor_years": int(tenor), "coupon_spread_bp": float(spread),
         "coverage_threshold": float(threshold), "fuel_passthrough": float(passthrough), "include_peers": bool(peers),
     }
+
+
+def await_brief(result: RunResult) -> RunResult:
+    """Poll GET /runs/{id} every 2 s for up to 60 s while the LLM brief is pending (LLD section 7)."""
+    poll_s = float(os.environ.get("AIRSCEN_POLL_S", "2"))
+    deadline = time.monotonic() + float(os.environ.get("AIRSCEN_POLL_TIMEOUT_S", "60"))
+    with st.spinner("Writing the LLM brief; the numbers above are final."):
+        while result.brief.llm_status == "pending" and time.monotonic() < deadline:
+            time.sleep(poll_s)
+            try:
+                result = RunResult.model_validate(client().get(f"/runs/{result.run_id}"))
+            except ApiError:
+                break
+    return result
 
 
 def submit(body: dict) -> RunResult | None:
@@ -160,7 +177,10 @@ def show_result(result: RunResult) -> None:
 
     st.subheader("Brief")
     b = result.brief
-    st.caption(f"LLM brief: {b.llm_status}. Showing the {'LLM' if b.llm_status == 'ready' and b.llm_md else 'template'} brief.")
+    if b.llm_status == "pending":
+        st.caption("The LLM brief is still being written; showing the template brief. Rerun to check again.")
+    else:
+        st.caption(f"LLM brief: {b.llm_status}. Showing the {'LLM' if b.llm_status == 'ready' and b.llm_md else 'template'} brief.")
     st.markdown(b.llm_md if b.llm_status == "ready" and b.llm_md else b.template_md)
 
 
@@ -172,6 +192,8 @@ def main() -> None:
 
     body = run_form()
     result = submit(body) if body else None
+    if result is not None:
+        result = await_brief(result)
     if result is None and body is None and st.session_state.get("run_id"):
         try:
             result = RunResult.model_validate(client().get(f"/runs/{st.session_state['run_id']}"))

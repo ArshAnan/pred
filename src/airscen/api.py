@@ -17,7 +17,7 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Literal, Optional
 
-from fastapi import APIRouter, FastAPI, Header, Query, Request, Response
+from fastapi import APIRouter, BackgroundTasks, FastAPI, Header, Query, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -69,11 +69,13 @@ def create_app(
     monotonic: Callable[[], float] = time.monotonic,
     job_runners: Callable[[Any, Any], dict[str, service.JobRunner]] | None = None,
     worker_factory: Callable[[Any, Any], Any] | None = None,
+    llm_factory: Callable[[Any, Any], Any] | None = None,
 ) -> FastAPI:
     """Build the app. Tests pass fakes and clocks; the real app uses lane A's loader and Repository.
 
     worker_factory(settings, repo) returns lane A's WorkerLoop (CP0_DECISIONS D5). It runs inside
     this one API process (DD-2): started here, stopped on shutdown, its status shown on /health.
+    llm_factory(settings, repo) returns lane B's LLMClient; without one, briefs stay template-only.
     """
     now = clock or (lambda: datetime.now(timezone.utc))
 
@@ -86,7 +88,13 @@ def create_app(
             repo = repo_factory(app.state.settings)
             repo.migrate()
             app.state.repo = repo
-            app.state.service = service.RunService(repo=repo, settings=app.state.settings, clock=now)
+            llm = None
+            if llm_factory is not None:
+                try:
+                    llm = llm_factory(app.state.settings, repo)
+                except Exception:  # briefs fall back to the template (DD-6)
+                    log.exception("LLM client could not be built; briefs stay template-only")
+            app.state.service = service.RunService(repo=repo, settings=app.state.settings, llm=llm, clock=now)
         except StoreError as e:
             _log("error", "db_unavailable", error_code=e.code, message=e.message)
         if worker_factory is not None and app.state.repo is not None:
@@ -153,20 +161,21 @@ def _router() -> APIRouter:
 
     @router.post("/runs", status_code=201, response_model=RunResult)
     def create_run(
-        request: Request, response: Response, req: RunRequest,
+        request: Request, response: Response, background: BackgroundTasks, req: RunRequest,
         idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
     ) -> RunResult:
         svc = _service(request)
         keys: _IdempotencyKeys = request.app.state.idempotency
-        if not idempotency_key:
-            return svc.create_run(req)
         with keys.lock:  # one worker (DD-2): a lock is enough to stop a double click creating two runs
-            if (run_id := keys.get(idempotency_key)) is not None:
+            if idempotency_key and (run_id := keys.get(idempotency_key)) is not None:
                 response.status_code = 200
                 return svc.get_run(run_id)
             run = svc.create_run(req)
-            keys.put(idempotency_key, run.run_id)
-            return run
+            if idempotency_key:
+                keys.put(idempotency_key, run.run_id)
+        if run.brief.llm_status == "pending":  # numbers return now; the LLM brief follows (LLD section 5)
+            background.add_task(svc.finish_brief, run.run_id)
+        return run
 
     @router.get("/runs/{run_id}", response_model=RunResult)
     def get_run(request: Request, run_id: str) -> RunResult:

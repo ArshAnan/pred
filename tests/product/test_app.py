@@ -114,6 +114,39 @@ def test_form_sends_the_run_request(api):
     assert req.headers["Idempotency-Key"]
 
 
+# ---- LLM brief polling (C9) ----
+
+def brief_state(run: dict, status: str, md: str | None = None) -> dict:
+    return run | {"brief": run["brief"] | {"llm_status": status, "llm_md": md}}
+
+
+def test_page_polls_until_the_llm_brief_is_ready(api, monkeypatch):
+    monkeypatch.setenv("AIRSCEN_POLL_S", "0")
+    body = {"ticker": "DAL", "note_size_usd_m": 1000, "tenor_years": 7, "coupon_spread_bp": 150}
+    run = run_json(body)
+    api.post("/runs").respond(201, json=brief_state(run, "pending"))
+    polls = api.get(f"/runs/{run['run_id']}").mock(side_effect=[
+        httpx.Response(200, json=brief_state(run, "pending")),
+        httpx.Response(200, json=brief_state(run, "ready", "**LLM brief:** coverage stays above 6.00x.")),
+    ])
+    at = click_run(start())
+    assert polls.call_count == 2
+    assert "**LLM brief:** coverage stays above 6.00x." in [m.value for m in at.markdown]
+    assert any("LLM brief: ready" in c.value for c in at.caption)
+
+
+def test_page_shows_the_template_when_the_llm_brief_takes_too_long(api, monkeypatch):
+    monkeypatch.setenv("AIRSCEN_POLL_S", "0")
+    monkeypatch.setenv("AIRSCEN_POLL_TIMEOUT_S", "0.05")
+    body = {"ticker": "DAL", "note_size_usd_m": 1000, "tenor_years": 7, "coupon_spread_bp": 150}
+    run = run_json(body)
+    api.post("/runs").respond(201, json=brief_state(run, "pending"))
+    api.get(f"/runs/{run['run_id']}").respond(200, json=brief_state(run, "pending"))
+    at = click_run(start())
+    assert "# DAL: can it service a $1,000M 7-year note?" in page_text(at)
+    assert any("still being written" in c.value for c in at.caption)
+
+
 # ---- errors ----
 
 def test_error_banner_shows_code_message_and_missing_facts(api):
