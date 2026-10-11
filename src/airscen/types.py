@@ -216,3 +216,75 @@ class RunSummary(FrozenModel):
     run_id: str; company: str; as_of: datetime; created_at: datetime
     p_breach: Optional[float]; flags: list[str]
     llm_status: Literal["pending", "ready", "failed", "rejected", "skipped"]
+
+
+_PATH_POINT_LIMIT = 48
+
+
+def path_times(start: datetime, end: datetime, step_hours: int, limit: int = _PATH_POINT_LIMIT) -> list[datetime]:
+    """as_of samples from start through end, including both ends. Stops once `limit` is exceeded."""
+    step = timedelta(hours=step_hours)
+    times: list[datetime] = []
+    cursor = start
+    while cursor < end:
+        times.append(cursor)
+        if len(times) > limit:
+            return times
+        cursor = cursor + step
+    times.append(end)
+    return times
+
+
+class AnswerPathRequest(FrozenModel):
+    """The same debt question at every as_of from start through end."""
+
+    model_config = ConfigDict(extra="forbid")
+    ticker: str
+    start: datetime
+    end: datetime
+    step_hours: int = Field(default=24, ge=1, le=168)
+    note_size_usd_m: float = Field(default=1000, gt=0, le=50_000)
+    tenor_years: int = Field(default=7, ge=1, le=40)
+    coupon_spread_bp: float = Field(default=150, ge=0, le=1_000)
+    coverage_threshold: float = Field(default=3.0, gt=0, le=50)
+    fuel_passthrough: float = Field(default=1.0, ge=0, le=1)
+
+    @model_validator(mode="after")
+    def check_window(self):
+        for name in ("start", "end"):
+            ts = getattr(self, name)
+            if ts.tzinfo is None or ts.utcoffset() is None:
+                raise ValueError(f"{name} must include a timezone")
+        if self.end < self.start:
+            raise ValueError("end must not be before start")
+        if self.end > datetime.now(timezone.utc) + timedelta(minutes=1):
+            raise ValueError("end cannot be more than one minute in the future")
+        if len(path_times(self.start, self.end, self.step_hours)) > _PATH_POINT_LIMIT:
+            raise ValueError("at most 48 points; widen step_hours or shorten the window")
+        return self
+
+
+class AnswerPathPoint(FrozenModel):
+    as_of: datetime
+    status: Literal["ok", "gap"]
+    p_breach: Optional[float] = None
+    breakeven_wti_hold: Optional[float] = None
+    coverage_p50: Optional[float] = None
+    operating_income_p50_usd_m: Optional[float] = None
+    net_interest_p50_usd_m: Optional[float] = None
+    coverage_change_from_fuel: Optional[float] = None
+    coverage_change_from_funding: Optional[float] = None
+    call: Optional[Literal["below_line", "on_or_above_line"]] = None
+    fresh: bool = False
+    flags: list[str] = Field(default_factory=list)
+    gap_reason: Optional[str] = None
+
+
+class AnswerPath(FrozenModel):
+    ticker: str
+    line: float
+    points: list[AnswerPathPoint]
+    crossings: list[datetime]
+    n_ok: int
+    n_gap: int
+    reading: str

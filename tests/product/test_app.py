@@ -274,6 +274,28 @@ def test_exposure_map_with_no_markets(api):
     assert any("No markets" in i.value for i in at.info)
 
 
+# ---- Answer path ----
+
+def test_answer_path_page_shows_the_series(api):
+    api.post("/runs/path").respond(200, json={
+        "ticker": "DAL", "line": 0.2,
+        "points": [
+            {"as_of": "2026-10-08T20:00:00Z", "status": "gap", "fresh": False, "flags": [],
+             "gap_reason": "Required inputs are missing"},
+            {"as_of": "2026-10-09T20:00:00Z", "status": "ok", "p_breach": 0.297, "fresh": True,
+             "call": "on_or_above_line", "coverage_p50": 7.49, "breakeven_wti_hold": 103.16,
+             "coverage_change_from_fuel": -1.2, "coverage_change_from_funding": 0.1, "flags": []},
+        ],
+        "crossings": ["2026-10-09T20:00:00Z"], "n_ok": 1, "n_gap": 1,
+        "reading": "The breach probability crosses the 20% alert line at 2026-10-09 20:00 UTC.",
+    })
+    at = open_page(start(), "Answer path")
+    next(b for b in at.button if b.label == "Show path").click().run()
+    assert not at.exception, at.exception
+    assert "crosses the 20% alert line" in page_text(at)
+    assert "29.7%" in at.dataframe[0].value["Breach probability"].tolist()
+
+
 # ---- Replay (C13) ----
 
 def test_replay_at_july_10_shows_a_run_with_backfill_inputs(api):

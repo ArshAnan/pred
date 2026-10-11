@@ -9,7 +9,7 @@ from __future__ import annotations
 import os
 import time
 import uuid
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from datetime import time as clock_time
 
 import streamlit as st
@@ -459,6 +459,65 @@ REPLAY_DEFAULT_DAY = date(2026, 7, 10)  # June-quarter release; the demo replay 
 REPLAY_TIME_UTC = clock_time(20, 0)     # after the US close, so that day's filings and quotes are visible
 
 
+def _utc_evening(day: date) -> datetime:
+    stamp = datetime.combine(day, clock_time(20, 0), tzinfo=timezone.utc)
+    return min(stamp, datetime.now(timezone.utc))
+
+
+def answer_path_page() -> None:
+    st.title("Answer path")
+    st.caption("The same note, recomputed at each as-of time with only the filings, Treasury yield, and quotes "
+               "visible then. A point marked not fresh used a quote older than the live window; the Run page "
+               "would have dropped it. Nothing here is saved, and it is not a forecast.")
+    try:
+        tickers = [c["ticker"] for c in companies()]
+    except ApiError:
+        tickers = ["DAL"]
+    today = datetime.now(timezone.utc).date()
+    ticker = st.selectbox("Company", tickers, key="path_ticker")
+    start_day = st.date_input("From (UTC)", value=today - timedelta(days=7), max_value=today, key="path_from")
+    end_day = st.date_input("To (UTC)", value=today, max_value=today, key="path_to")
+    step = st.number_input("Step (hours)", min_value=1, max_value=168, value=24, step=1)
+    note = st.number_input("New note size (USD m)", min_value=1.0, max_value=50_000.0, value=1000.0, step=100.0, key="path_note")
+    threshold = st.number_input("Coverage threshold", min_value=0.1, max_value=50.0, value=3.0, step=0.5, key="path_threshold")
+    if not st.button("Show path"):
+        return
+    start, end = _utc_evening(start_day), _utc_evening(end_day)
+    if start > end:
+        st.error("From must not be after To.")
+        return
+    body = {
+        "ticker": ticker, "start": start.isoformat().replace("+00:00", "Z"),
+        "end": end.isoformat().replace("+00:00", "Z"), "step_hours": int(step),
+        "note_size_usd_m": note, "tenor_years": 7, "coupon_spread_bp": 150.0,
+        "coverage_threshold": threshold, "fuel_passthrough": 1.0,
+    }
+    try:
+        report = client().post("/runs/path", body)
+    except ApiError as e:
+        error_banner(e)
+        return
+    st.markdown(report["reading"])
+    st.dataframe([{
+        "As of": point["as_of"],
+        "Status": point["status"],
+        "Breach probability": pct(point.get("p_breach")),
+        "Call": point.get("call") or "",
+        "P50 coverage": times(point.get("coverage_p50")),
+        "Coverage from fuel": num(point.get("coverage_change_from_fuel")),
+        "Coverage from interest": num(point.get("coverage_change_from_funding")),
+        "Breakeven WTI": num(point.get("breakeven_wti_hold")),
+        "Fresh": "yes" if point.get("fresh") else "no",
+        "Gap": point.get("gap_reason") or "",
+    } for point in report["points"]], hide_index=True, use_container_width=True)
+    chart = [
+        {"as of": point["as_of"], "breach probability": point["p_breach"]}
+        for point in report["points"] if point.get("p_breach") is not None
+    ]
+    if chart:
+        st.line_chart(chart, x="as of", y="breach probability")
+
+
 def replay_page() -> None:
     masthead(
         "History",
@@ -505,8 +564,8 @@ def run_page() -> None:
         show_result(result)
 
 
-PAGES = {"Run": run_page, "Exposure map": exposure_page, "Peers": peers_page, "Alerts": alerts_page,
-         "Replay": replay_page}
+PAGES = {"Run": run_page, "Exposure map": exposure_page, "Peers": peers_page,
+         "Answer path": answer_path_page, "Alerts": alerts_page, "Replay": replay_page}
 
 
 def main() -> None:

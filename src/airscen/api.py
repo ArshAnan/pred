@@ -25,8 +25,8 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from airscen import config, service, store
 from airscen.types import (
-    AirScenError, Alert, Company, Fact, Factor, HealthStatus, LLMStatus, MarketView, RequestError, RunRequest, RunResult,
-    RunSummary, Snapshot, SourceError, StoreError, Venue, WorkerStatus,
+    AirScenError, Alert, AnswerPath, AnswerPathRequest, Company, Fact, Factor, HealthStatus, LLMStatus, MarketView,
+    RequestError, RunRequest, RunResult, RunSummary, Snapshot, SourceError, StoreError, Venue, WorkerStatus,
 )
 
 PREFIX = "/api/v1"
@@ -187,6 +187,11 @@ def _router() -> APIRouter:
     @router.get("/companies/{ticker}/facts", response_model=list[Fact])
     def facts(request: Request, ticker: str, as_of: Optional[datetime] = None) -> list[Fact]:
         return _service(request).facts(ticker, _as_of(request, as_of))
+
+    @router.post("/runs/path", response_model=AnswerPath)
+    def answer_path(request: Request, req: AnswerPathRequest) -> AnswerPath:
+        """The same question at each as_of in the window. Does not save a run."""
+        return _service(request).answer_path(req)
 
     @router.post("/runs", status_code=201, response_model=RunResult)
     def create_run(

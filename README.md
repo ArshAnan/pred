@@ -70,6 +70,7 @@ background worker.
   marked "LLM (unvalidated)".
 - **Peers**: the same question for United and American with the same fuel curve and Fed odds but their own financials, plus operating margin (adjusted revenue when every company has it).
 - **Alerts**: the alert feed (undelivered alerts are marked) and a "Send test alert" button.
+- **Answer path**: the same note recomputed across a window of as-of times. Shows when the breach probability crosses the 20% alert line, and splits the P50 coverage change into operating income (fuel) and net interest. A stale quote is kept and marked not fresh; the Run page still drops it.
 - **Replay**: slide `as_of` back (default 2026-07-10) and rerun with only the data visible then.
 
 ## Five-minute demo
