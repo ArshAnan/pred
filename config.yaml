@@ -1,8 +1,8 @@
 # Defaults from LLD section 9; company CIKs and model placeholders remain unresolved.
 companies:
   - {ticker: DAL, cik: 27904, name: Delta Air Lines, peers: [UAL, AAL]}
-  - {ticker: UAL, cik: null, name: United Airlines Holdings, peers: [DAL, AAL]}   # resolved from company_tickers_exchange.json at startup
-  - {ticker: AAL, cik: null, name: American Airlines Group, peers: [DAL, UAL]}
+  - {ticker: UAL, cik: 100517, name: United Airlines Holdings, peers: [DAL, AAL]}   # company_tickers_exchange.json, 2026-10-11
+  - {ticker: AAL, cik: 6201, name: American Airlines Group, peers: [DAL, UAL]}   # company_tickers_exchange.json, 2026-10-11
 poll: {market_s: 60, filings_s: 1800, macro_s: 21600, stale_after_s: 300}
 trust:
   weights: {spread: 0.35, depth: 0.25, volume: 0.25, time: 0.15}

@@ -104,8 +104,8 @@ class LLMConfig(_Section):
 def _default_companies() -> list[CompanyConfig]:
     return [
         CompanyConfig(ticker="DAL", cik=27904, name="Delta Air Lines", peers=["UAL", "AAL"]),
-        CompanyConfig(ticker="UAL", cik=None, name="United Airlines Holdings", peers=["DAL", "AAL"]),
-        CompanyConfig(ticker="AAL", cik=None, name="American Airlines Group", peers=["DAL", "UAL"]),
+        CompanyConfig(ticker="UAL", cik=100517, name="United Airlines Holdings", peers=["DAL", "AAL"]),
+        CompanyConfig(ticker="AAL", cik=6201, name="American Airlines Group", peers=["DAL", "UAL"]),
     ]
 
 

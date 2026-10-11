@@ -134,6 +134,14 @@ def test_a_failed_probe_reopens_the_circuit(tmp_path):
         assert route.call_count == after_probe
 
 
+def test_get_text_returns_the_body(tmp_path):
+    clock = FakeClock()
+    with respx.mock:
+        respx.get("https://kalshi.test/filing").mock(return_value=httpx.Response(200, text="<html>8-K</html>"))
+        body = _client(clock, tmp_path).get_text("/filing", None)
+    assert body == "<html>8-K</html>"
+
+
 def test_post_json_sends_a_body(tmp_path):
     clock = FakeClock()
     with respx.mock:

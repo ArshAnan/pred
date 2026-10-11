@@ -67,7 +67,8 @@ def test_config_yaml_matches_settings():
     settings = Settings.model_validate(raw)
     assert [c.ticker for c in settings.companies] == ["DAL", "UAL", "AAL"]
     assert settings.companies[0].cik == 27904
-    assert settings.companies[1].cik is None
+    assert settings.companies[1].cik == 100517
+    assert settings.companies[2].cik == 6201
     assert settings.poll.market_s == 60
     assert settings.trust.floor == 0.40
     assert settings.trust.weights.spread == 0.35

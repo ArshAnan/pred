@@ -99,7 +99,11 @@ class SourceClient:
     def post_json(self, path, body):
         return self._request("POST", path, json=body)
 
-    def _request(self, method: str, path: str, params=None, json=None):
+    def get_text(self, path, params=None) -> str:
+        """Same retry policy as get_json, for HTML filings that are not JSON."""
+        return self._request("GET", path, params=params, decode="text")
+
+    def _request(self, method: str, path: str, params=None, json=None, decode: str = "json"):
         started = self._clock()
         for attempt in range(3):
             self._ensure_circuit_closed()
@@ -146,6 +150,8 @@ class SourceClient:
                     details={"source": self.name, "status": response.status_code},
                 )
             self._record_success()
+            if decode == "text":
+                return response.text
             return self._decode(response)
         raise SourceError(f"{self.name} request failed", code="E_SOURCE_UNAVAILABLE", details={"source": self.name})
 
