@@ -28,7 +28,7 @@ class Metric(str, Enum):
     REVENUE_GAAP = "revenue_gaap"; REVENUE_ADJUSTED = "revenue_adjusted"          # usd_m
     TOTAL_ASSETS = "total_assets"; TOTAL_LIABILITIES = "total_liabilities"; EQUITY = "equity"  # usd_m, identity checks
 
-class Company(FrozenModel): ticker: str; cik: int; name: str; peers: list[str]
+class Company(FrozenModel): ticker: str; cik: Optional[int]; name: str; peers: list[str]   # cik None: not resolved from EDGAR yet
 
 class Fact(FrozenModel):
     company: str; metric: Metric; value: float; unit: str; basis: Basis

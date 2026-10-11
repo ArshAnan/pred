@@ -20,10 +20,10 @@ PREFIX = "/api/v1"
 
 
 def fake_settings(token: str = "", llm_mode: str = "live"):
-    # Company values from config.yaml / CLAUDE.md section 5. UAL and AAL CIKs are placeholders for tests only.
+    # As in config.yaml: DAL's CIK is verified; UAL's is null until lane A resolves it from EDGAR.
     companies = [
         SimpleNamespace(ticker="DAL", cik=27904, name="Delta Air Lines", peers=["UAL", "AAL"]),
-        SimpleNamespace(ticker="UAL", cik=1, name="United Airlines Holdings", peers=["DAL", "AAL"]),
+        SimpleNamespace(ticker="UAL", cik=None, name="United Airlines Holdings", peers=["DAL", "AAL"]),
     ]
     return SimpleNamespace(api_token=token, llm_mode=llm_mode, companies=companies)
 
@@ -124,6 +124,13 @@ def test_companies_lists_configured_companies(client):
     assert resp.status_code == 200
     assert resp.json()[0] == {"ticker": "DAL", "cik": 27904, "name": "Delta Air Lines", "peers": ["UAL", "AAL"]}
     assert [c["ticker"] for c in resp.json()] == ["DAL", "UAL"]
+
+
+def test_companies_lists_a_company_whose_cik_is_not_resolved_yet(client):
+    # config.yaml ships UAL and AAL with cik: null (resolved from EDGAR later); the list must still load.
+    resp = client.get(PREFIX + "/companies")
+    assert resp.status_code == 200
+    assert resp.json()[1] == {"ticker": "UAL", "cik": None, "name": "United Airlines Holdings", "peers": ["DAL", "AAL"]}
 
 
 # ---- request id ----
