@@ -44,8 +44,9 @@ setup:
 	$(if $(wildcard .env),@echo .env already exists - left unchanged,$(if $(wildcard .env.example),$(PYTHON) -c "import shutil; shutil.copyfile('.env.example', '.env')",@echo .env.example not found yet - skipping .env))
 
 # DD-2: exactly one uvicorn worker; it also hosts the background worker loop.
+# airscen.main wires every lane into the app (airscen.api:app alone runs without the worker).
 api:
-	$(PY) -m uvicorn airscen.api:app --host $(API_HOST) --port $(API_PORT) --workers 1
+	$(PY) -m uvicorn airscen.main:app --host $(API_HOST) --port $(API_PORT) --workers 1
 
 ui:
 	$(PY) -m streamlit run app.py --server.address $(UI_HOST) --server.port $(UI_PORT)

@@ -35,7 +35,7 @@ def test_test_target_runs_pytest():
 
 def test_api_target_starts_one_uvicorn_worker_on_localhost():
     out = dry_run("api")
-    assert "uvicorn airscen.api:app" in out
+    assert "uvicorn airscen.main:app" in out
     assert "--host 127.0.0.1" in out
     assert "--port 8000" in out
     assert "--workers 1" in out  # DD-2: never more than one worker
